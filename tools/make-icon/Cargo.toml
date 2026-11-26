@@ -1,0 +1,12 @@
+[package]
+name = "make-icon"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Renders assets/logo.svg into the app's PNG and .ico icons"
+
+[dependencies]
+resvg = "0.45"
+ico = "0.4"
+
+[workspace]

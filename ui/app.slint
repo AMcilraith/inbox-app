@@ -1,0 +1,2204 @@
+// Inbox Hub — native desktop UI (Slint). The Rust side lives in src/app.rs.
+
+import { Button, LineEdit, TextEdit, ComboBox, CheckBox, ScrollView, ListView, Palette } from "std-widgets.slint";
+
+// ------------------------------------------------------------------ data --
+
+export struct AccountItem {
+    email: string,
+    label: string,
+    color: color,
+    primary: bool,
+    unread: int,
+    style: string,
+    error: string,
+}
+
+export struct ThreadItem {
+    account: string,
+    id: string,
+    color: color,
+    account-label: string,
+    from: string,
+    subject: string,
+    snippet: string,
+    when: string,
+    unread: bool,
+    badge: string,
+    // High | Medium | Low | tag | accent
+    badge-kind: string,
+    reason: string,
+}
+
+export struct EventItem {
+    account: string,
+    id: string,
+    color: color,
+    account-label: string,
+    title: string,
+    when: string,
+    day-label: string,
+    date: string,
+    start-hm: string,
+    end-hm: string,
+    location: string,
+    link: string,
+    organizer: string,
+    status: string,
+    clash: bool,
+    needs-rsvp: bool,
+    all-day: bool,
+    recurring: bool,
+}
+
+export struct GridEvent {
+    ev: EventItem,
+    col: int,
+    // minutes from the first hour shown
+    top: float,
+    minutes: float,
+    lane: int,
+    lanes: int,
+}
+
+export struct DayCol {
+    date: string,
+    label: string,
+    is-today: bool,
+    all-day: [EventItem],
+}
+
+export struct MonthCell {
+    date: string,
+    day: string,
+    row: int,
+    col: int,
+    in-month: bool,
+    is-today: bool,
+    events: [EventItem],
+    more: int,
+}
+
+export struct AgendaRow {
+    header: string,
+    ev: EventItem,
+}
+
+export struct MessageItem {
+    from: string,
+    to: string,
+    when: string,
+    body: string,
+    attachments: string,
+}
+
+export struct ChatItem {
+    mine: bool,
+    text: string,
+    tools: string,
+    error: bool,
+}
+
+export struct Tile {
+    k: string,
+    v: string,
+    h: string,
+}
+
+export struct Chip {
+    name: string,
+    count: int,
+}
+
+// ---------------------------------------------------------------- theme --
+
+export global Theme {
+    in-out property <bool> dark: true;
+    out property <color> bg: dark ? #0c0d10 : #f6f7f9;
+    out property <color> panel: dark ? #15161b : #ffffff;
+    out property <color> panel-2: dark ? #1c1e24 : #f1f3f6;
+    out property <color> line: dark ? #272a32 : #e4e7ec;
+    out property <color> text: dark ? #eceef2 : #101828;
+    out property <color> muted: dark ? #9aa1ad : #667085;
+    out property <color> faint: dark ? #6b7280 : #98a2b3;
+    out property <color> accent: dark ? #8b7fff : #6d5efc;
+    out property <color> accent-soft: dark ? #25224a : #eeecff;
+    out property <color> high: dark ? #ff6b6f : #e5484d;
+    out property <color> high-soft: dark ? #3a1d1f : #fdecec;
+    out property <color> med: dark ? #f5a524 : #d97706;
+    out property <color> med-soft: dark ? #3a2c14 : #fdf3e2;
+    out property <color> low: dark ? #4cc38a : #3e8e65;
+    out property <color> low-soft: dark ? #16301f : #e8f5ee;
+    out property <color> shade: dark ? #ffffff06 : #0000000a;
+}
+
+// ----------------------------------------------------------- primitives --
+
+component Card inherits Rectangle {
+    background: Theme.panel;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.line;
+}
+
+component CardHeader inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> note;
+    padding-left: 16px;
+    padding-right: 12px;
+    height: 46px;
+    spacing: 8px;
+    Text {
+        text: root.title;
+        font-size: 14px;
+        font-weight: 650;
+        color: Theme.text;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+    Rectangle { horizontal-stretch: 1; }
+    Text {
+        text: root.note;
+        color: Theme.muted;
+        font-size: 12px;
+        vertical-alignment: center;
+    }
+    @children
+}
+
+component Divider inherits Rectangle {
+    height: 1px;
+    background: Theme.line;
+}
+
+component Pill inherits Rectangle {
+    in property <string> text;
+    in property <string> kind;
+    property <color> fg: kind == "High" ? Theme.high : kind == "Medium" ? Theme.med : kind == "Low" ? Theme.low : kind == "accent" ? Theme.accent : Theme.muted;
+    property <color> soft: kind == "High" ? Theme.high-soft : kind == "Medium" ? Theme.med-soft : kind == "Low" ? Theme.low-soft : kind == "accent" ? Theme.accent-soft : Theme.panel-2;
+    background: soft;
+    border-radius: 9px;
+    height: 18px;
+    width: label.preferred-width + 14px;
+    label := Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        color: root.fg;
+        font-size: 11px;
+        font-weight: 600;
+        vertical-alignment: center;
+        horizontal-alignment: center;
+    }
+}
+
+component Dot inherits Rectangle {
+    in property <color> c;
+    in property <length> size: 8px;
+    width: size;
+    height: size;
+    border-radius: size / 2;
+    background: c;
+}
+
+component Empty inherits Text {
+    color: Theme.faint;
+    horizontal-alignment: center;
+    vertical-alignment: center;
+    wrap: word-wrap;
+    min-height: 60px;
+}
+
+component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked;
+    width: label == "" ? 32px : lbl.preferred-width + (icon.width > 0 ? 40px : 20px);
+    height: 32px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.line;
+    background: ta.has-hover && enabled ? Theme.panel-2 : Theme.panel;
+    opacity: enabled ? 1 : 0.5;
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: label == "" ? 7px : 10px;
+        padding-right: label == "" ? 7px : 10px;
+        spacing: 6px;
+        alignment: center;
+        if icon.width > 0: Image {
+            source: root.icon;
+            colorize: Theme.muted;
+            width: 16px;
+            height: 16px;
+            y: (parent.height - self.height) / 2;
+        }
+        lbl := Text {
+            text: root.label;
+            color: Theme.text;
+            vertical-alignment: center;
+        }
+    }
+}
+
+component Seg inherits Rectangle {
+    in property <string> text;
+    in property <bool> on;
+    callback clicked;
+    height: 28px;
+    width: t.preferred-width + 20px;
+    border-radius: 6px;
+    background: on ? Theme.accent-soft : ta.has-hover ? Theme.panel-2 : transparent;
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    t := Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        color: on ? Theme.accent : Theme.muted;
+        font-weight: on ? 600 : 400;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+component SegGroup inherits Rectangle {
+    background: Theme.panel;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.line;
+    height: 34px;
+    HorizontalLayout {
+        padding: 2px;
+        spacing: 2px;
+        @children
+    }
+}
+
+component ChipButton inherits Rectangle {
+    in property <string> text;
+    in property <int> count;
+    in property <bool> on;
+    callback clicked;
+    height: 28px;
+    width: hl.preferred-width;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: on ? Theme.accent : Theme.line;
+    background: on ? Theme.accent-soft : ta.has-hover ? Theme.panel-2 : Theme.panel;
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    hl := HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        spacing: 6px;
+        Text {
+            text: root.text;
+            color: on ? Theme.accent : Theme.text;
+            vertical-alignment: center;
+        }
+        Text {
+            text: root.count;
+            color: Theme.faint;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// ---------------------------------------------------------------- rows --
+
+component ThreadRow inherits Rectangle {
+    in property <ThreadItem> t;
+    in property <bool> selected;
+    callback clicked;
+    height: 66px;
+    border-radius: 8px;
+    background: selected ? Theme.accent-soft : ta.has-hover ? Theme.panel-2 : transparent;
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 9px;
+        padding-bottom: 9px;
+        spacing: 10px;
+        VerticalLayout {
+            alignment: start;
+            padding-top: 5px;
+            Dot { c: t.color; }
+        }
+        VerticalLayout {
+            spacing: 2px;
+            horizontal-stretch: 1;
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: t.from;
+                    color: Theme.text;
+                    font-weight: t.unread ? 700 : 500;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                if t.badge != "": VerticalLayout {
+                    alignment: center;
+                    Pill { text: t.badge; kind: t.badge-kind; }
+                }
+                Text {
+                    text: t.when;
+                    color: Theme.faint;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+            }
+            Text {
+                text: t.subject;
+                color: Theme.text;
+                font-weight: t.unread ? 600 : 400;
+                overflow: elide;
+            }
+            Text {
+                text: t.reason != "" ? t.reason : t.snippet;
+                color: Theme.muted;
+                font-size: 12px;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+component EventRow inherits Rectangle {
+    in property <EventItem> ev;
+    in property <bool> show-day;
+    callback clicked;
+    height: 52px;
+    border-radius: 8px;
+    background: ta.has-hover ? Theme.panel-2 : transparent;
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 7px;
+        padding-bottom: 7px;
+        spacing: 10px;
+        Rectangle {
+            width: 4px;
+            border-radius: 2px;
+            background: ev.color;
+        }
+        VerticalLayout {
+            spacing: 2px;
+            horizontal-stretch: 1;
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: ev.title;
+                    color: Theme.text;
+                    font-weight: 600;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+                if ev.clash: VerticalLayout {
+                    alignment: center;
+                    Pill { text: "Clash"; kind: "High"; }
+                }
+                if ev.needs-rsvp: VerticalLayout {
+                    alignment: center;
+                    Pill { text: "RSVP"; kind: "Medium"; }
+                }
+            }
+            Text {
+                text: (show-day ? ev.day-label + " · " : "") + ev.when + " · " + ev.account-label + (ev.location != "" ? " · " + ev.location : "");
+                color: Theme.muted;
+                font-size: 12px;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+component NavButton inherits Rectangle {
+    in property <string> text;
+    in property <image> icon;
+    in property <bool> on;
+    in property <string> count;
+    callback clicked;
+    height: 34px;
+    border-radius: 8px;
+    background: on ? Theme.accent-soft : ta.has-hover ? Theme.panel-2 : transparent;
+    ta := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 10px;
+        Image {
+            source: root.icon;
+            colorize: on ? Theme.accent : Theme.muted;
+            width: 18px;
+            height: 18px;
+            y: (parent.height - self.height) / 2;
+        }
+        Text {
+            text: root.text;
+            color: on ? Theme.accent : Theme.muted;
+            font-weight: on ? 600 : 400;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        if count != "": Text {
+            text: root.count;
+            color: Theme.faint;
+            font-size: 12px;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// ------------------------------------------------------------ calendar --
+
+component TimeGrid inherits Rectangle {
+    in property <[DayCol]> cols;
+    in property <[GridEvent]> events;
+    in property <int> start-hour: 7;
+    in property <int> end-hour: 21;
+    in property <int> allday-rows;
+    // working hours in minutes since midnight; -1 = none
+    in property <int> work-start: -1;
+    in property <int> work-end: -1;
+    in property <int> now-col: -1;
+    in property <float> now-min;
+    callback event-clicked(EventItem);
+    callback slot-clicked(string, int);
+    property <length> hour-h: 48px;
+    property <length> gutter: 58px;
+    property <length> head-h: 44px;
+    property <length> allday-h: allday-rows > 0 ? allday-rows * 22px + 8px : 0px;
+    property <length> col-w: (self.width - gutter - 12px) / Math.max(1, cols.length);
+    property <float> span-min: (end-hour - start-hour) * 60;
+
+    for c[i] in cols: Rectangle {
+        x: gutter + i * col-w;
+        y: 0;
+        width: col-w;
+        height: head-h;
+        Text {
+            width: parent.width;
+            height: parent.height;
+            text: c.label;
+            color: c.is-today ? Theme.accent : Theme.muted;
+            font-weight: c.is-today ? 700 : 500;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+    for c[i] in cols: Rectangle {
+        x: gutter + i * col-w;
+        y: head-h;
+        width: col-w;
+        height: allday-h;
+        for e[j] in c.all-day: Rectangle {
+            x: 2px;
+            y: 4px + j * 22px;
+            width: parent.width - 4px;
+            height: 20px;
+            border-radius: 4px;
+            background: e.color.with-alpha(0.25);
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.event-clicked(e); }
+            }
+            Text {
+                x: 6px;
+                width: parent.width - 8px;
+                height: parent.height;
+                text: e.title;
+                color: Theme.text;
+                font-size: 11px;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+        }
+    }
+    Rectangle {
+        y: head-h + allday-h;
+        height: 1px;
+        background: Theme.line;
+    }
+    sv := ScrollView {
+        x: 0;
+        y: head-h + allday-h + 1px;
+        width: parent.width;
+        height: parent.height - self.y;
+        viewport-width: self.visible-width;
+        viewport-height: (end-hour - start-hour) * hour-h + 8px;
+        // working-hours shading
+        if work-start >= 0: Rectangle {
+            x: gutter;
+            y: 0;
+            width: root.col-w * cols.length;
+            height: Math.max(0px, (work-start - start-hour * 60) / 60 * hour-h);
+            background: Theme.shade;
+        }
+        if work-end >= 0: Rectangle {
+            x: gutter;
+            y: Math.max(0px, (work-end - start-hour * 60) / 60 * hour-h);
+            width: root.col-w * cols.length;
+            height: Math.max(0px, (end-hour * 60 - work-end) / 60 * hour-h);
+            background: Theme.shade;
+        }
+        for h[i] in (end-hour - start-hour): Rectangle {
+            x: 0;
+            y: i * hour-h;
+            width: parent.width;
+            height: hour-h;
+            Rectangle {
+                x: gutter;
+                y: 0;
+                width: parent.width - gutter - 12px;
+                height: 1px;
+                background: Theme.line;
+            }
+            Text {
+                x: 0;
+                y: 2px;
+                width: gutter - 10px;
+                text: (Math.mod(start-hour + i + 11, 12) + 1) + (start-hour + i < 12 ? " AM" : " PM");
+                color: Theme.faint;
+                font-size: 11px;
+                horizontal-alignment: right;
+            }
+        }
+        for c[i] in cols: Rectangle {
+            x: gutter + i * col-w;
+            y: 0;
+            width: col-w;
+            height: (end-hour - start-hour) * hour-h;
+            border-width: 0px;
+            Rectangle {
+                x: 0;
+                width: 1px;
+                background: Theme.line;
+            }
+            if c.is-today: Rectangle {
+                background: Theme.accent.with-alpha(0.04);
+            }
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.slot-clicked(c.date, start-hour * 60 + Math.floor(self.pressed-y / hour-h * 2) * 30);
+                }
+            }
+        }
+        for e in events: Rectangle {
+            x: gutter + e.col * col-w + 2px + e.lane * (col-w - 4px) / e.lanes;
+            y: e.top / 60 * hour-h + 1px;
+            width: (col-w - 4px) / e.lanes - 2px;
+            height: Math.max(20px, e.minutes / 60 * hour-h - 2px);
+            border-radius: 6px;
+            background: e.ev.color.with-alpha(Theme.dark ? 0.28 : 0.18);
+            border-width: e.ev.clash ? 1px : 0px;
+            border-color: Theme.high;
+            clip: true;
+            Rectangle {
+                x: 0;
+                width: 3px;
+                background: e.ev.color;
+            }
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.event-clicked(e.ev); }
+            }
+            VerticalLayout {
+                padding-left: 8px;
+                padding-right: 4px;
+                padding-top: 3px;
+                alignment: start;
+                Text {
+                    text: e.ev.title;
+                    color: Theme.text;
+                    font-size: 12px;
+                    font-weight: 600;
+                    overflow: elide;
+                }
+                if e.minutes >= 45: Text {
+                    text: e.ev.when;
+                    color: Theme.muted;
+                    font-size: 11px;
+                    overflow: elide;
+                }
+            }
+        }
+        if now-col >= 0 && now-min >= 0 && now-min <= span-min: Rectangle {
+            x: gutter + now-col * col-w;
+            y: now-min / 60 * hour-h;
+            width: col-w;
+            height: 2px;
+            background: Theme.high;
+        }
+    }
+}
+
+component MonthGrid inherits Rectangle {
+    in property <[MonthCell]> cells;
+    in property <[string]> weekdays;
+    callback event-clicked(EventItem);
+    callback day-clicked(string);
+    property <length> head-h: 30px;
+    property <length> cw: self.width / 7;
+    property <length> ch: (self.height - head-h) / 6;
+    for d[i] in weekdays: Text {
+        x: i * cw;
+        y: 0;
+        width: cw;
+        height: head-h;
+        text: d;
+        color: Theme.muted;
+        font-size: 12px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+    for c in cells: Rectangle {
+        x: c.col * cw;
+        y: head-h + c.row * ch;
+        width: cw;
+        height: ch;
+        border-width: 0.5px;
+        border-color: Theme.line;
+        background: c.in-month ? transparent : Theme.shade;
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { root.day-clicked(c.date); }
+        }
+        Rectangle {
+            x: 6px;
+            y: 4px;
+            width: 22px;
+            height: 22px;
+            border-radius: 11px;
+            background: c.is-today ? Theme.accent : transparent;
+            Text {
+                width: parent.width;
+                height: parent.height;
+                text: c.day;
+                color: c.is-today ? #ffffff : c.in-month ? Theme.text : Theme.faint;
+                font-size: 12px;
+                font-weight: c.is-today ? 700 : 400;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+        for e[j] in c.events: Rectangle {
+            x: 4px;
+            y: 30px + j * 20px;
+            width: parent.width - 8px;
+            height: 18px;
+            border-radius: 4px;
+            background: e.color.with-alpha(0.22);
+            visible: self.y + self.height <= parent.height - 2px;
+            TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.event-clicked(e); }
+            }
+            Text {
+                x: 5px;
+                width: parent.width - 7px;
+                height: parent.height;
+                text: (e.all-day ? "" : e.start-hm + " ") + e.title;
+                color: Theme.text;
+                font-size: 11px;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+        }
+        if c.more > 0: Text {
+            x: 8px;
+            y: 30px + c.events.length * 20px;
+            text: "+" + c.more + " more";
+            color: Theme.muted;
+            font-size: 11px;
+        }
+    }
+}
+
+// -------------------------------------------------------------- window --
+
+export component MainWindow inherits Window {
+    title: "Inbox Hub";
+    icon: @image-url("../assets/icon-256.png");
+    preferred-width: 1320px;
+    preferred-height: 860px;
+    min-width: 960px;
+    min-height: 620px;
+    background: Theme.bg;
+    default-font-family: "Segoe UI";
+    default-font-size: 13px;
+
+    // status
+    in property <bool> signed-in;
+    in property <bool> demo;
+    in property <bool> claude-enabled;
+    in property <string> model-name;
+    in property <string> signin-note;
+    in property <bool> signing-in;
+    in property <string> banner-error;
+    in property <string> toast;
+    in property <bool> loading;
+    in-out property <string> view: "overview";
+    in property <string> subtitle;
+    in-out property <string> theme-mode: "system";
+    in-out property <bool> system-dark: true;
+
+    // sidebar
+    in property <[AccountItem]> accounts;
+    in-out property <string> account-filter: "all";
+    in property <int> total-unread;
+
+    // overview
+    in property <[Tile]> tiles;
+    in property <[ThreadItem]> todo;
+    in property <[EventItem]> today-events;
+    in property <[ThreadItem]> waiting;
+    in property <string> overview-error;
+
+    // inbox
+    in property <[Chip]> chips;
+    in-out property <string> category: "All";
+    in property <[ThreadItem]> threads;
+    in property <string> inbox-error;
+    in-out property <string> search-text;
+    in property <bool> thread-open;
+    in property <bool> thread-loading;
+    in property <string> thread-account;
+    in property <string> thread-id;
+    in property <string> thread-subject;
+    in property <string> thread-account-label;
+    in property <color> thread-color;
+    in property <[MessageItem]> messages;
+    in-out property <string> guidance-text;
+    in-out property <string> reply-text;
+    in property <bool> drafting;
+    in property <bool> replying;
+    in property <string> reply-note;
+
+    // calendar
+    in-out property <string> cal-view: "week";
+    in property <string> cal-title;
+    in property <[DayCol]> cal-cols;
+    in property <[GridEvent]> cal-events;
+    in property <int> cal-allday-rows;
+    in property <int> cal-start-hour: 7;
+    in property <int> cal-end-hour: 21;
+    in property <int> cal-work-start: -1;
+    in property <int> cal-work-end: -1;
+    in property <int> cal-now-col: -1;
+    in property <float> cal-now-min;
+    in property <[MonthCell]> cal-month;
+    in property <[string]> cal-weekdays;
+    in property <[AgendaRow]> cal-agenda;
+    in property <[AccountItem]> cal-accounts;
+    in property <[bool]> cal-shown;
+    in property <string> cal-error;
+
+    // event detail + form
+    in-out property <bool> event-open;
+    in-out property <EventItem> sel-event;
+    in-out property <bool> form-open;
+    in-out property <string> form-event-id;
+    in property <[string]> account-labels;
+    in-out property <int> form-account;
+    in-out property <string> form-title;
+    in-out property <string> form-date;
+    in-out property <string> form-start;
+    in-out property <string> form-end;
+    in-out property <bool> form-all-day;
+    in-out property <string> form-location;
+    in-out property <string> form-description;
+    in-out property <string> form-attendees;
+    in-out property <bool> form-video;
+    in property <string> form-error;
+    in property <bool> form-saving;
+
+    // digest
+    in property <string> digest-title: "Latest digest";
+    in property <string> digest-note;
+    in property <string> digest-body;
+    in property <bool> digest-busy;
+
+    // accounts
+    in property <string> link-note;
+    in property <string> link-url;
+
+    // chat
+    in-out property <bool> chat-open;
+    in property <[ChatItem]> chat;
+    in property <bool> chat-busy;
+    in-out property <string> chat-input;
+
+    // confirm dialog
+    in-out property <bool> confirm-open;
+    in property <string> confirm-text;
+    in property <string> confirm-ok: "OK";
+
+    callback navigate(string);
+    callback refresh();
+    callback sign-in();
+    callback sign-out();
+    callback set-theme(string);
+    callback select-account(string);
+    callback select-category(string);
+    callback search(string);
+    callback open-thread(string, string);
+    callback close-thread();
+    callback draft-ai();
+    callback save-draft();
+    callback send-reply();
+    callback cal-step(int);
+    callback cal-set-view(string);
+    callback cal-toggle(int);
+    callback new-event();
+    callback new-event-at(string, int);
+    callback edit-event(EventItem);
+    callback save-event();
+    callback rsvp(string, string, string);
+    callback delete-event(string, string);
+    callback open-link(string);
+    callback digest-preview();
+    callback digest-send();
+    callback link-account();
+    callback sync-style(string);
+    callback ask(string);
+    callback new-chat();
+    callback confirm-yes();
+
+    public function scroll-chat-bottom() {
+        chat-sv.viewport-y = Math.min(0px, chat-sv.visible-height - chat-sv.viewport-height);
+    }
+
+    function apply-theme() {
+        Theme.dark = theme-mode == "dark" ? true : theme-mode == "light" ? false : system-dark;
+        Palette.color-scheme = Theme.dark ? ColorScheme.dark : ColorScheme.light;
+    }
+    init => {
+        if (Palette.color-scheme != ColorScheme.unknown) {
+            system-dark = Palette.color-scheme == ColorScheme.dark;
+        }
+        apply-theme();
+    }
+    changed theme-mode => { apply-theme(); }
+    changed system-dark => { apply-theme(); }
+
+    // ---------------------------------------------------------- sign in
+    if !root.signed-in: Rectangle {
+        Card {
+            width: 440px;
+            height: 360px;
+            VerticalLayout {
+                padding: 32px;
+                spacing: 14px;
+                alignment: center;
+                HorizontalLayout {
+                    alignment: center;
+                    Image {
+                        source: @image-url("../assets/icon-256.png");
+                        width: 72px;
+                        height: 72px;
+                    }
+                }
+                Text {
+                    text: "Connect Superhuman";
+                    font-size: 22px;
+                    font-weight: 700;
+                    color: Theme.text;
+                    horizontal-alignment: center;
+                }
+                Text {
+                    text: "Inbox Hub reads your linked Superhuman accounts and calendars. You sign in once on Superhuman's own page in your browser; after that everything happens in this window.";
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                    horizontal-alignment: center;
+                }
+                HorizontalLayout {
+                    alignment: center;
+                    Button {
+                        text: root.signing-in ? "Waiting for the browser…" : "Sign in with Superhuman";
+                        primary: true;
+                        enabled: !root.signing-in;
+                        clicked => { root.sign-in(); }
+                    }
+                }
+                Text {
+                    text: root.signin-note;
+                    color: Theme.muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    horizontal-alignment: center;
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------- app
+    if root.signed-in: HorizontalLayout {
+        // sidebar
+        Rectangle {
+            width: 236px;
+            background: Theme.panel;
+            Rectangle {
+                x: parent.width - 1px;
+                width: 1px;
+                background: Theme.line;
+            }
+            VerticalLayout {
+                padding: 12px;
+                padding-top: 16px;
+                spacing: 3px;
+                HorizontalLayout {
+                    padding-left: 8px;
+                    padding-bottom: 14px;
+                    spacing: 10px;
+                    Image {
+                        source: @image-url("../assets/icon-256.png");
+                        width: 30px;
+                        height: 30px;
+                    }
+                    Text {
+                        text: "Inbox Hub";
+                        font-size: 16px;
+                        font-weight: 700;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                }
+                NavButton {
+                    text: "Overview";
+                    icon: @image-url("../assets/icons/overview.svg");
+                    on: root.view == "overview";
+                    clicked => { root.view = "overview"; root.navigate("overview"); }
+                }
+                NavButton {
+                    text: "Inbox";
+                    icon: @image-url("../assets/icons/inbox.svg");
+                    on: root.view == "inbox";
+                    count: root.total-unread > 0 ? "\{root.total-unread}" : "";
+                    clicked => { root.view = "inbox"; root.navigate("inbox"); }
+                }
+                NavButton {
+                    text: "Calendar";
+                    icon: @image-url("../assets/icons/calendar.svg");
+                    on: root.view == "calendar";
+                    clicked => { root.view = "calendar"; root.navigate("calendar"); }
+                }
+                NavButton {
+                    text: "Daily digest";
+                    icon: @image-url("../assets/icons/digest.svg");
+                    on: root.view == "digest";
+                    clicked => { root.view = "digest"; root.navigate("digest"); }
+                }
+                NavButton {
+                    text: "Accounts & style";
+                    icon: @image-url("../assets/icons/accounts.svg");
+                    on: root.view == "accounts";
+                    clicked => { root.view = "accounts"; root.navigate("accounts"); }
+                }
+                Text {
+                    text: "ACCOUNTS";
+                    color: Theme.faint;
+                    font-size: 11px;
+                    font-weight: 600;
+                    letter-spacing: 0.6px;
+                    height: 34px;
+                    vertical-alignment: bottom;
+                    x: 10px;
+                }
+                Rectangle { height: 4px; }
+                Rectangle {
+                    height: 30px;
+                    border-radius: 8px;
+                    background: root.account-filter == "all" ? Theme.panel-2 : all-ta.has-hover ? Theme.panel-2 : transparent;
+                    all-ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.select-account("all"); }
+                    }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            Dot { c: Theme.faint; }
+                        }
+                        Text {
+                            text: "All accounts";
+                            color: Theme.text;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                }
+                for a in root.accounts: Rectangle {
+                    height: 30px;
+                    border-radius: 8px;
+                    background: root.account-filter == a.email ? Theme.panel-2 : acc-ta.has-hover ? Theme.panel-2 : transparent;
+                    acc-ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.select-account(a.email); }
+                    }
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 10px;
+                        VerticalLayout {
+                            alignment: center;
+                            Dot { c: a.color; }
+                        }
+                        Text {
+                            text: a.label;
+                            color: a.error != "" ? Theme.high : Theme.text;
+                            vertical-alignment: center;
+                            overflow: elide;
+                            horizontal-stretch: 1;
+                        }
+                        if a.unread > 0: Text {
+                            text: a.unread;
+                            color: Theme.faint;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+                Rectangle { vertical-stretch: 1; }
+                SegGroup {
+                    Seg {
+                        text: "Auto";
+                        on: root.theme-mode == "system";
+                        horizontal-stretch: 1;
+                        clicked => { root.theme-mode = "system"; root.set-theme("system"); }
+                    }
+                    Seg {
+                        text: "Light";
+                        on: root.theme-mode == "light";
+                        horizontal-stretch: 1;
+                        clicked => { root.theme-mode = "light"; root.set-theme("light"); }
+                    }
+                    Seg {
+                        text: "Dark";
+                        on: root.theme-mode == "dark";
+                        horizontal-stretch: 1;
+                        clicked => { root.theme-mode = "dark"; root.set-theme("dark"); }
+                    }
+                }
+                Rectangle { height: 6px; }
+                Rectangle {
+                    height: 38px;
+                    border-radius: 10px;
+                    background: ask-ta.has-hover ? Theme.accent.darker(0.1) : Theme.accent;
+                    ask-ta := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.chat-open = !root.chat-open; }
+                    }
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 8px;
+                        Image {
+                            source: @image-url("../assets/icons/spark.svg");
+                            colorize: #ffffff;
+                            width: 14px;
+                            height: 14px;
+                            y: (parent.height - self.height) / 2;
+                        }
+                        Text {
+                            text: "Ask Claude";
+                            color: #ffffff;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+            }
+        }
+
+        // main column
+        VerticalLayout {
+            horizontal-stretch: 1;
+            if root.demo: Rectangle {
+                height: 30px;
+                background: Theme.accent-soft;
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: "Demo mode — sample data for four accounts. Start without --demo to connect Superhuman.";
+                    color: Theme.accent;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+            }
+            if root.banner-error != "": Rectangle {
+                height: 30px;
+                background: Theme.high-soft;
+                Text {
+                    width: parent.width;
+                    height: parent.height;
+                    text: root.banner-error;
+                    color: Theme.high;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    overflow: elide;
+                }
+            }
+            // top bar
+            HorizontalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-top: 18px;
+                padding-bottom: 14px;
+                spacing: 10px;
+                height: 78px;
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 2px;
+                    Text {
+                        text: root.view == "overview" ? "Overview" : root.view == "inbox" ? "Inbox" : root.view == "calendar" ? "Calendar" : root.view == "digest" ? "Daily digest" : "Accounts & style";
+                        font-size: 22px;
+                        font-weight: 700;
+                        color: Theme.text;
+                    }
+                    Text {
+                        text: root.subtitle;
+                        color: Theme.muted;
+                    }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                if root.loading: Text {
+                    text: "Loading…";
+                    color: Theme.faint;
+                    vertical-alignment: center;
+                }
+                if root.view == "inbox": LineEdit {
+                    width: 260px;
+                    height: 34px;
+                    y: (parent.height - self.height) / 2;
+                    placeholder-text: "Search mail…";
+                    text <=> root.search-text;
+                    edited(t) => { root.search(t); }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        icon: @image-url("../assets/icons/refresh.svg");
+                        clicked => { root.refresh(); }
+                    }
+                }
+            }
+
+            // ------------------------------------------------ overview
+            if root.view == "overview": VerticalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: 24px;
+                spacing: 16px;
+                vertical-stretch: 1;
+                HorizontalLayout {
+                    spacing: 16px;
+                    height: 104px;
+                    for t in root.tiles: Card {
+                        horizontal-stretch: 1;
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 4px;
+                            Text {
+                                text: t.k;
+                                color: Theme.muted;
+                                font-size: 12px;
+                            }
+                            Text {
+                                text: t.v;
+                                color: Theme.text;
+                                font-size: 28px;
+                                font-weight: 700;
+                            }
+                            Text {
+                                text: t.h;
+                                color: Theme.faint;
+                                font-size: 12px;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 16px;
+                    vertical-stretch: 1;
+                    Card {
+                        horizontal-stretch: 3;
+                        VerticalLayout {
+                            CardHeader {
+                                title: "What needs doing";
+                                note: root.todo.length > 0 ? root.todo.length + " items" : "";
+                            }
+                            Divider { }
+                            if root.overview-error != "": Empty {
+                                text: root.overview-error;
+                                color: Theme.high;
+                            }
+                            if root.overview-error == "" && root.todo.length == 0 && !root.loading: Empty {
+                                text: "Nothing urgent. Nice.";
+                            }
+                            ListView {
+                                vertical-stretch: 1;
+                                for t in root.todo: ThreadRow {
+                                    t: t;
+                                    clicked => { root.view = "inbox"; root.open-thread(t.account, t.id); }
+                                }
+                            }
+                        }
+                    }
+                    VerticalLayout {
+                        horizontal-stretch: 2;
+                        spacing: 16px;
+                        Card {
+                            vertical-stretch: 1;
+                            VerticalLayout {
+                                CardHeader {
+                                    title: "Today";
+                                    note: root.today-events.length > 0 ? root.today-events.length + " events" : "";
+                                }
+                                Divider { }
+                                if root.today-events.length == 0 && !root.loading: Empty {
+                                    text: "No events today";
+                                }
+                                ListView {
+                                    vertical-stretch: 1;
+                                    for e in root.today-events: EventRow {
+                                        ev: e;
+                                        clicked => { root.sel-event = e; root.event-open = true; }
+                                    }
+                                }
+                            }
+                        }
+                        Card {
+                            vertical-stretch: 1;
+                            VerticalLayout {
+                                CardHeader { title: "Waiting on others"; }
+                                Divider { }
+                                if root.waiting.length == 0 && !root.loading: Empty {
+                                    text: "Not waiting on anyone";
+                                }
+                                ListView {
+                                    vertical-stretch: 1;
+                                    for t in root.waiting: ThreadRow {
+                                        t: t;
+                                        clicked => { root.view = "inbox"; root.open-thread(t.account, t.id); }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ------------------------------------------------ inbox
+            if root.view == "inbox": VerticalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: 24px;
+                spacing: 12px;
+                vertical-stretch: 1;
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: start;
+                    height: 28px;
+                    for c in root.chips: ChipButton {
+                        text: c.name;
+                        count: c.count;
+                        on: root.category == c.name;
+                        clicked => { root.select-category(c.name); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 16px;
+                    vertical-stretch: 1;
+                    Card {
+                        width: Math.max(320px, parent.width * 0.38);
+                        VerticalLayout {
+                            padding: 6px;
+                            if root.inbox-error != "": Empty {
+                                text: root.inbox-error;
+                                color: Theme.high;
+                            }
+                            if root.inbox-error == "" && root.threads.length == 0 && !root.loading: Empty {
+                                text: "No conversations";
+                            }
+                            ListView {
+                                vertical-stretch: 1;
+                                for t in root.threads: ThreadRow {
+                                    t: t;
+                                    selected: root.thread-open && root.thread-id == t.id && root.thread-account == t.account;
+                                    clicked => { root.open-thread(t.account, t.id); }
+                                }
+                            }
+                        }
+                    }
+                    Card {
+                        horizontal-stretch: 1;
+                        if !root.thread-open: Empty {
+                            width: parent.width;
+                            height: parent.height;
+                            text: root.thread-loading ? "Loading conversation…" : "Select a conversation";
+                        }
+                        if root.thread-open: VerticalLayout {
+                            HorizontalLayout {
+                                padding-left: 16px;
+                                padding-right: 12px;
+                                height: 50px;
+                                spacing: 10px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Dot { c: root.thread-color; size: 10px; }
+                                }
+                                Text {
+                                    text: root.thread-subject;
+                                    color: Theme.text;
+                                    font-size: 15px;
+                                    font-weight: 650;
+                                    vertical-alignment: center;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                                Text {
+                                    text: root.thread-account-label;
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
+                                }
+                                VerticalLayout {
+                                    alignment: center;
+                                    IconButton {
+                                        label: "Close";
+                                        clicked => { root.close-thread(); }
+                                    }
+                                }
+                            }
+                            Divider { }
+                            ScrollView {
+                                vertical-stretch: 1;
+                                VerticalLayout {
+                                    padding: 16px;
+                                    spacing: 14px;
+                                    for m in root.messages: Rectangle {
+                                        border-radius: 10px;
+                                        border-width: 1px;
+                                        border-color: Theme.line;
+                                        background: Theme.bg;
+                                        VerticalLayout {
+                                            padding: 14px;
+                                            spacing: 8px;
+                                            HorizontalLayout {
+                                                spacing: 8px;
+                                                Text {
+                                                    text: m.from;
+                                                    color: Theme.text;
+                                                    font-weight: 650;
+                                                    overflow: elide;
+                                                }
+                                                Text {
+                                                    text: "→ " + m.to;
+                                                    color: Theme.muted;
+                                                    overflow: elide;
+                                                    horizontal-stretch: 1;
+                                                }
+                                                Text {
+                                                    text: m.when;
+                                                    color: Theme.faint;
+                                                    font-size: 12px;
+                                                }
+                                            }
+                                            TextInput {
+                                                text: m.body;
+                                                read-only: true;
+                                                wrap: word-wrap;
+                                                color: Theme.text;
+                                                selection-background-color: Theme.accent-soft;
+                                                single-line: false;
+                                            }
+                                            if m.attachments != "": Text {
+                                                text: "Attachments: " + m.attachments;
+                                                color: Theme.muted;
+                                                font-size: 12px;
+                                                wrap: word-wrap;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Divider { }
+                            VerticalLayout {
+                                padding: 14px;
+                                spacing: 8px;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: "Reply";
+                                        color: Theme.text;
+                                        font-weight: 650;
+                                    }
+                                    Text {
+                                        text: "from " + root.thread-account;
+                                        color: Theme.muted;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
+                                LineEdit {
+                                    placeholder-text: "Optional: tell Claude what to say (e.g. confirm, ask to move it to Tuesday)";
+                                    text <=> root.guidance-text;
+                                }
+                                TextEdit {
+                                    height: 120px;
+                                    text <=> root.reply-text;
+                                    wrap: word-wrap;
+                                }
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Button {
+                                        text: root.drafting ? "Drafting…" : "✦ Draft with Claude";
+                                        enabled: root.claude-enabled && !root.drafting;
+                                        clicked => { root.draft-ai(); }
+                                    }
+                                    Rectangle { horizontal-stretch: 1; }
+                                    Button {
+                                        text: "Save to Superhuman drafts";
+                                        enabled: !root.demo && !root.replying;
+                                        clicked => { root.save-draft(); }
+                                    }
+                                    Button {
+                                        text: root.replying ? "Sending…" : "Send";
+                                        primary: true;
+                                        enabled: !root.demo && !root.replying;
+                                        clicked => { root.send-reply(); }
+                                    }
+                                }
+                                if root.reply-note != "": Text {
+                                    text: root.reply-note;
+                                    color: Theme.muted;
+                                    font-size: 12px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ------------------------------------------------ calendar
+            if root.view == "calendar": VerticalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: 24px;
+                spacing: 12px;
+                vertical-stretch: 1;
+                HorizontalLayout {
+                    spacing: 10px;
+                    height: 34px;
+                    SegGroup {
+                        Seg {
+                            text: "‹";
+                            clicked => { root.cal-step(-1); }
+                        }
+                        Seg {
+                            text: "Today";
+                            clicked => { root.cal-step(0); }
+                        }
+                        Seg {
+                            text: "›";
+                            clicked => { root.cal-step(1); }
+                        }
+                    }
+                    Text {
+                        text: root.cal-title;
+                        color: Theme.text;
+                        font-size: 16px;
+                        font-weight: 650;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    SegGroup {
+                        Seg {
+                            text: "Day";
+                            on: root.cal-view == "day";
+                            clicked => { root.cal-set-view("day"); }
+                        }
+                        Seg {
+                            text: "Week";
+                            on: root.cal-view == "week";
+                            clicked => { root.cal-set-view("week"); }
+                        }
+                        Seg {
+                            text: "Month";
+                            on: root.cal-view == "month";
+                            clicked => { root.cal-set-view("month"); }
+                        }
+                        Seg {
+                            text: "Agenda";
+                            on: root.cal-view == "agenda";
+                            clicked => { root.cal-set-view("agenda"); }
+                        }
+                    }
+                    Button {
+                        text: "+ New event";
+                        primary: true;
+                        clicked => { root.new-event(); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 14px;
+                    alignment: start;
+                    height: 22px;
+                    for a[i] in root.cal-accounts: Rectangle {
+                        width: cal-acc.preferred-width;
+                        cal-ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => { root.cal-toggle(i); }
+                        }
+                        cal-acc := HorizontalLayout {
+                            spacing: 6px;
+                            Rectangle {
+                                width: 14px;
+                                height: 14px;
+                                y: 4px;
+                                border-radius: 4px;
+                                border-width: 2px;
+                                border-color: a.color;
+                                background: root.cal-shown[i] ? a.color : transparent;
+                            }
+                            Text {
+                                text: a.label;
+                                color: root.cal-shown[i] ? Theme.text : Theme.faint;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+                    if root.cal-error != "": Text {
+                        text: root.cal-error;
+                        color: Theme.high;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
+                Card {
+                    vertical-stretch: 1;
+                    clip: true;
+                    if root.cal-view == "day" || root.cal-view == "week": TimeGrid {
+                        width: parent.width;
+                        height: parent.height;
+                        cols: root.cal-cols;
+                        events: root.cal-events;
+                        start-hour: root.cal-start-hour;
+                        end-hour: root.cal-end-hour;
+                        allday-rows: root.cal-allday-rows;
+                        work-start: root.cal-work-start;
+                        work-end: root.cal-work-end;
+                        now-col: root.cal-now-col;
+                        now-min: root.cal-now-min;
+                        event-clicked(e) => { root.sel-event = e; root.event-open = true; }
+                        slot-clicked(d, m) => { root.new-event-at(d, m); }
+                    }
+                    if root.cal-view == "month": MonthGrid {
+                        width: parent.width;
+                        height: parent.height;
+                        cells: root.cal-month;
+                        weekdays: root.cal-weekdays;
+                        event-clicked(e) => { root.sel-event = e; root.event-open = true; }
+                        day-clicked(d) => { root.new-event-at(d, 9 * 60); }
+                    }
+                    if root.cal-view == "agenda": ListView {
+                        width: parent.width;
+                        height: parent.height;
+                        for r in root.cal-agenda: VerticalLayout {
+                            padding-left: 8px;
+                            padding-right: 8px;
+                            if r.header != "": Text {
+                                text: r.header;
+                                color: Theme.muted;
+                                font-weight: 650;
+                                height: 34px;
+                                vertical-alignment: bottom;
+                                x: 12px;
+                            }
+                            EventRow {
+                                ev: r.ev;
+                                clicked => { root.sel-event = r.ev; root.event-open = true; }
+                            }
+                        }
+                    }
+                    if root.cal-view == "agenda" && root.cal-agenda.length == 0 && !root.loading: Empty {
+                        width: parent.width;
+                        height: parent.height;
+                        text: "Nothing scheduled in the next two weeks";
+                    }
+                }
+            }
+
+            // ------------------------------------------------ digest
+            if root.view == "digest": VerticalLayout {
+                padding-left: 24px;
+                padding-right: 24px;
+                padding-bottom: 24px;
+                vertical-stretch: 1;
+                Card {
+                    VerticalLayout {
+                        CardHeader {
+                            title: root.digest-title;
+                            Button {
+                                text: root.digest-busy ? "Working…" : "Preview today's";
+                                enabled: !root.digest-busy;
+                                clicked => { root.digest-preview(); }
+                            }
+                            Button {
+                                text: "Send digest now";
+                                primary: true;
+                                enabled: !root.digest-busy && !root.demo;
+                                clicked => { root.digest-send(); }
+                            }
+                        }
+                        Text {
+                            text: root.digest-note;
+                            color: Theme.muted;
+                            x: 16px;
+                            height: 26px;
+                            vertical-alignment: center;
+                        }
+                        Divider { }
+                        ScrollView {
+                            vertical-stretch: 1;
+                            VerticalLayout {
+                                padding: 18px;
+                                TextInput {
+                                    text: root.digest-body;
+                                    read-only: true;
+                                    wrap: word-wrap;
+                                    single-line: false;
+                                    color: Theme.text;
+                                    selection-background-color: Theme.accent-soft;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ------------------------------------------------ accounts
+            if root.view == "accounts": ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding-left: 24px;
+                    padding-right: 24px;
+                    padding-bottom: 24px;
+                    spacing: 14px;
+                    alignment: start;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: start;
+                        Button {
+                            text: "+ Link another Superhuman account";
+                            primary: true;
+                            enabled: !root.demo;
+                            clicked => { root.link-account(); }
+                        }
+                        if root.link-url != "": Button {
+                            text: "Open the link again";
+                            clicked => { root.open-link(root.link-url); }
+                        }
+                        Button {
+                            text: "Sign out";
+                            enabled: !root.demo;
+                            clicked => { root.sign-out(); }
+                        }
+                    }
+                    if root.link-note != "": Text {
+                        text: root.link-note;
+                        color: Theme.muted;
+                        wrap: word-wrap;
+                    }
+                    for a in root.accounts: Card {
+                        VerticalLayout {
+                            padding: 16px;
+                            spacing: 8px;
+                            HorizontalLayout {
+                                spacing: 10px;
+                                VerticalLayout {
+                                    alignment: center;
+                                    Dot { c: a.color; size: 12px; }
+                                }
+                                Text {
+                                    text: a.label;
+                                    color: Theme.text;
+                                    font-weight: 700;
+                                    font-size: 14px;
+                                }
+                                if a.primary: VerticalLayout {
+                                    alignment: center;
+                                    Pill { text: "primary"; kind: "accent"; }
+                                }
+                                Text {
+                                    text: a.email;
+                                    color: Theme.muted;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                Button {
+                                    text: "Sync style to Superhuman";
+                                    enabled: a.style != "" && !root.demo;
+                                    clicked => { root.sync-style(a.email); }
+                                }
+                            }
+                            if a.error != "": Text {
+                                text: a.error;
+                                color: Theme.high;
+                                wrap: word-wrap;
+                            }
+                            Text {
+                                text: a.style != "" ? "Reply style: " + a.style : "No reply style set — add one under this account in inbox-hub.toml.";
+                                color: Theme.muted;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                    Text {
+                        text: "Labels, colours, VIP senders, urgent words, categories and reply style live in inbox-hub.toml. “Sync style” teaches Superhuman's own writer the same voice.";
+                        color: Theme.faint;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------- Ask Claude drawer
+    if root.chat-open && root.signed-in: Rectangle {
+        x: parent.width - self.width;
+        width: 420px;
+        height: parent.height;
+        background: Theme.panel;
+        border-width: 1px;
+        border-color: Theme.line;
+        drop-shadow-blur: 24px;
+        drop-shadow-color: #00000040;
+        TouchArea { }
+        VerticalLayout {
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 12px;
+                height: 52px;
+                spacing: 8px;
+                Image {
+                    source: @image-url("../assets/icons/spark.svg");
+                    colorize: Theme.accent;
+                    width: 14px;
+                    height: 14px;
+                    y: (parent.height - self.height) / 2;
+                }
+                Text {
+                    text: "Ask Claude";
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+                Text {
+                    text: root.claude-enabled ? root.model-name : "needs API key";
+                    color: Theme.faint;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        label: "New";
+                        clicked => { root.new-chat(); }
+                    }
+                }
+                VerticalLayout {
+                    alignment: center;
+                    IconButton {
+                        label: "✕";
+                        clicked => { root.chat-open = false; }
+                    }
+                }
+            }
+            Divider { }
+            chat-sv := ScrollView {
+                vertical-stretch: 1;
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 10px;
+                    alignment: start;
+                    if !root.claude-enabled: Text {
+                        text: "Set ANTHROPIC_API_KEY (or claude.api_key in inbox-hub.toml) and restart to use Claude.";
+                        color: Theme.high;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: "Claude can search and read all your linked accounts and calendars. It can't send anything on its own.";
+                        color: Theme.muted;
+                        wrap: word-wrap;
+                    }
+                    if root.chat.length == 0: VerticalLayout {
+                        spacing: 6px;
+                        alignment: start;
+                        for q in [
+                            { label: "What needs a reply?", q: "What do I need to reply to today, across all my accounts?" },
+                            { label: "My week", q: "Summarize my schedule for the rest of this week and flag any conflicts between calendars." },
+                            { label: "Bills & deadlines", q: "Find any bills, payments or deadlines mentioned in my email in the last two weeks." },
+                            { label: "Waiting on", q: "Who am I waiting on a reply from?" },
+                        ]: HorizontalLayout {
+                            alignment: start;
+                            ChipButton {
+                                text: q.label;
+                                count: 0;
+                                clicked => { root.ask(q.q); }
+                            }
+                        }
+                    }
+                    for m in root.chat: HorizontalLayout {
+                        alignment: m.mine ? end : start;
+                        Rectangle {
+                            max-width: 340px;
+                            border-radius: 12px;
+                            background: m.mine ? Theme.accent : m.error ? Theme.high-soft : Theme.panel-2;
+                            VerticalLayout {
+                                padding: 10px;
+                                padding-left: 12px;
+                                padding-right: 12px;
+                                spacing: 6px;
+                                TextInput {
+                                    text: m.text;
+                                    read-only: true;
+                                    wrap: word-wrap;
+                                    single-line: false;
+                                    color: m.mine ? #ffffff : m.error ? Theme.high : Theme.text;
+                                    selection-background-color: Theme.accent-soft;
+                                }
+                                if m.tools != "": Text {
+                                    text: "Checked: " + m.tools;
+                                    color: Theme.faint;
+                                    font-size: 11px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                    if root.chat-busy: Text {
+                        text: "Claude is thinking…";
+                        color: Theme.muted;
+                    }
+                }
+            }
+            Divider { }
+            HorizontalLayout {
+                padding: 12px;
+                spacing: 8px;
+                LineEdit {
+                    placeholder-text: "Ask about your email or calendar…";
+                    text <=> root.chat-input;
+                    enabled: root.claude-enabled;
+                    accepted(t) => {
+                        if (t != "" && !root.chat-busy) {
+                            root.ask(t);
+                        }
+                    }
+                }
+                Button {
+                    text: "Send";
+                    primary: true;
+                    enabled: root.claude-enabled && !root.chat-busy && root.chat-input != "";
+                    clicked => { root.ask(root.chat-input); }
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------- event detail
+    if root.event-open: Rectangle {
+        background: #00000070;
+        TouchArea {
+            clicked => { root.event-open = false; }
+        }
+        Card {
+            width: 440px;
+            height: ev-layout.preferred-height;
+            drop-shadow-blur: 30px;
+            drop-shadow-color: #00000050;
+            TouchArea { }
+            ev-layout := VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    VerticalLayout {
+                        alignment: center;
+                        Dot { c: root.sel-event.color; size: 12px; }
+                    }
+                    Text {
+                        text: root.sel-event.title;
+                        font-size: 18px;
+                        font-weight: 700;
+                        color: Theme.text;
+                        wrap: word-wrap;
+                        horizontal-stretch: 1;
+                    }
+                }
+                Text {
+                    text: root.sel-event.day-label + " · " + root.sel-event.when + (root.sel-event.recurring ? " · repeats" : "");
+                    color: Theme.text;
+                }
+                Text {
+                    text: root.sel-event.account-label + (root.sel-event.organizer != "" ? " · organised by " + root.sel-event.organizer : "");
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                if root.sel-event.location != "": Text {
+                    text: "Location: " + root.sel-event.location;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                }
+                if root.sel-event.clash: Text {
+                    text: "⚠ Overlaps another event";
+                    color: Theme.high;
+                }
+                if root.sel-event.status != "": Text {
+                    text: "Your response: " + root.sel-event.status;
+                    color: Theme.muted;
+                }
+                HorizontalLayout {
+                    spacing: 6px;
+                    Text {
+                        text: "RSVP";
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    Button {
+                        text: "Yes";
+                        clicked => { root.rsvp(root.sel-event.account, root.sel-event.id, "accepted"); }
+                    }
+                    Button {
+                        text: "Maybe";
+                        clicked => { root.rsvp(root.sel-event.account, root.sel-event.id, "tentative"); }
+                    }
+                    Button {
+                        text: "No";
+                        clicked => { root.rsvp(root.sel-event.account, root.sel-event.id, "declined"); }
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    padding-top: 6px;
+                    if root.sel-event.link != "": Button {
+                        text: "Join meeting";
+                        primary: true;
+                        clicked => { root.open-link(root.sel-event.link); }
+                    }
+                    Rectangle { horizontal-stretch: 1; }
+                    Button {
+                        text: "Delete";
+                        clicked => { root.delete-event(root.sel-event.account, root.sel-event.id); }
+                    }
+                    Button {
+                        text: "Edit";
+                        clicked => { root.event-open = false; root.edit-event(root.sel-event); }
+                    }
+                    Button {
+                        text: "Close";
+                        clicked => { root.event-open = false; }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------- event form
+    if root.form-open: Rectangle {
+        background: #00000070;
+        TouchArea { }
+        Card {
+            width: 480px;
+            height: form-layout.preferred-height;
+            drop-shadow-blur: 30px;
+            drop-shadow-color: #00000050;
+            form-layout := VerticalLayout {
+                padding: 20px;
+                spacing: 10px;
+                Text {
+                    text: root.form-event-id == "" ? "New event" : "Edit event";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: Theme.text;
+                }
+                LineEdit {
+                    placeholder-text: "Title";
+                    text <=> root.form-title;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Calendar";
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                        width: 70px;
+                    }
+                    ComboBox {
+                        model: root.account-labels;
+                        current-index <=> root.form-account;
+                        enabled: root.form-event-id == "";
+                        horizontal-stretch: 1;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Date";
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                        width: 70px;
+                    }
+                    LineEdit {
+                        placeholder-text: "YYYY-MM-DD";
+                        text <=> root.form-date;
+                        horizontal-stretch: 2;
+                    }
+                    CheckBox {
+                        text: "All day";
+                        checked <=> root.form-all-day;
+                    }
+                }
+                if !root.form-all-day: HorizontalLayout {
+                    spacing: 8px;
+                    Text {
+                        text: "Time";
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                        width: 70px;
+                    }
+                    LineEdit {
+                        placeholder-text: "09:00";
+                        text <=> root.form-start;
+                    }
+                    Text {
+                        text: "to";
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    LineEdit {
+                        placeholder-text: "09:30";
+                        text <=> root.form-end;
+                    }
+                }
+                LineEdit {
+                    placeholder-text: "Location (optional)";
+                    text <=> root.form-location;
+                }
+                LineEdit {
+                    placeholder-text: "Invite people: emails separated by commas (optional)";
+                    text <=> root.form-attendees;
+                }
+                LineEdit {
+                    placeholder-text: "Description (optional)";
+                    text <=> root.form-description;
+                }
+                CheckBox {
+                    text: "Add a video meeting link";
+                    checked <=> root.form-video;
+                }
+                if root.form-error != "": Text {
+                    text: root.form-error;
+                    color: Theme.high;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Button {
+                        text: "Cancel";
+                        clicked => { root.form-open = false; }
+                    }
+                    Button {
+                        text: root.form-saving ? "Saving…" : "Save";
+                        primary: true;
+                        enabled: !root.form-saving;
+                        clicked => { root.save-event(); }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------- confirm
+    if root.confirm-open: Rectangle {
+        background: #00000070;
+        TouchArea { }
+        Card {
+            width: 400px;
+            height: cf-layout.preferred-height;
+            drop-shadow-blur: 30px;
+            drop-shadow-color: #00000050;
+            cf-layout := VerticalLayout {
+                padding: 20px;
+                spacing: 16px;
+                Text {
+                    text: root.confirm-text;
+                    color: Theme.text;
+                    font-size: 14px;
+                    wrap: word-wrap;
+                }
+                HorizontalLayout {
+                    spacing: 8px;
+                    alignment: end;
+                    Button {
+                        text: "Cancel";
+                        clicked => { root.confirm-open = false; }
+                    }
+                    Button {
+                        text: root.confirm-ok;
+                        primary: true;
+                        clicked => { root.confirm-open = false; root.confirm-yes(); }
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------- toast
+    if root.toast != "": Rectangle {
+        x: (parent.width - self.width) / 2;
+        y: parent.height - self.height - 24px;
+        width: Math.min(640px, toast-text.preferred-width + 32px);
+        height: toast-text.preferred-height + 20px;
+        border-radius: 10px;
+        background: Theme.dark ? #eceef2 : #101828;
+        drop-shadow-blur: 16px;
+        drop-shadow-color: #00000040;
+        toast-text := Text {
+            x: 16px;
+            width: parent.width - 32px;
+            y: 10px;
+            text: root.toast;
+            color: Theme.dark ? #101828 : #ffffff;
+            wrap: word-wrap;
+        }
+    }
+}

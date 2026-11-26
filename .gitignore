@@ -1,0 +1,6 @@
+/target
+/tools/make-icon/target
+/dist
+inbox-hub.toml
+.inbox-hub/
+inbox-hub-source.zip

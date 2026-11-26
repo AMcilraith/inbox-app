@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Inbox Hub logo: three linked accounts (two dots and Claude's spark) flowing into one inbox tray. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7b6cff"/>
+      <stop offset="1" stop-color="#b45cf0"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#bg)"/>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="url(#shine)"/>
+  <!-- streams -->
+  <g fill="none" stroke="#ffffff" stroke-width="56" stroke-linecap="round">
+    <path d="M300 330 C300 430 430 440 470 520" stroke-opacity="0.75"/>
+    <path d="M724 330 C724 430 594 440 554 520" stroke-opacity="0.75"/>
+    <path d="M512 344 L512 520"/>
+  </g>
+  <!-- account nodes -->
+  <circle cx="300" cy="300" r="64" fill="#ffffff" fill-opacity="0.85"/>
+  <circle cx="724" cy="300" r="64" fill="#ffffff" fill-opacity="0.85"/>
+  <!-- spark (Claude) -->
+  <path d="M512 150 C524 232 548 256 630 268 C548 280 524 304 512 386 C500 304 476 280 394 268 C476 256 500 232 512 150 Z" fill="#ffffff"/>
+  <!-- inbox tray -->
+  <path d="M212 560 L396 560 Q416 560 428 578 L460 626 Q472 644 492 644 L532 644 Q552 644 564 626 L596 578 Q608 560 628 560 L812 560 L812 748 Q812 836 724 836 L300 836 Q212 836 212 748 Z" fill="#ffffff"/>
+</svg>

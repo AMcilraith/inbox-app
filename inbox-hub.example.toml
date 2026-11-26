@@ -1,0 +1,83 @@
+# Inbox Hub configuration — copy to `inbox-hub.toml` and edit.
+# Your accounts come from Superhuman automatically (sign in once in the app).
+# Everything below is optional personalisation layered on top.
+
+timezone = "America/Winnipeg"
+port = 7878
+theme = "system"                   # system | light | dark
+# Subject used for the daily digest email (and to find past digests).
+digest_subject = "Daily Digest"
+
+[digest]
+# to = "you@example.com"          # default: your primary Superhuman account
+# from_account = "you@example.com" # default: your primary Superhuman account
+send_time = "07:45"                # sent automatically while the app is running
+
+[calendar]
+default_view = "week"              # day | week | month | agenda
+week_starts_on = "sunday"
+day_start_hour = 7
+day_end_hour = 21
+default_duration_minutes = 30
+working_hours = "09:00-17:00"
+
+[claude]
+model = "claude-opus-5-5"
+effort = "medium"
+# api_key = "sk-ant-..."           # or set the ANTHROPIC_API_KEY environment variable
+
+# ---------------------------------------------------------- per-account prefs --
+# Match accounts by the email address linked in Superhuman.
+
+[[accounts]]
+email = "you@example.com"
+label = "Personal"
+color = "#6366f1"
+vip = ["mom@", "partner@example.com"]
+urgent_keywords = ["urgent", "today", "asap", "confirm"]
+style = "Warm and casual. Open with 'Hey {first name},'. Short paragraphs. Sign off 'Cheers, Alex'."
+  [[accounts.categories]]
+  name = "Family"
+  from = ["mom@", "dad@", "@family.example"]
+  [[accounts.categories]]
+  name = "Bills"
+  subject = ["invoice", "bill", "payment", "statement", "receipt"]
+
+[[accounts]]
+email = "alex@company.example"
+label = "Work"
+color = "#0ea5e9"
+vip = ["ceo@company.example", "@bigclient.example"]
+urgent_keywords = ["urgent", "deadline", "eod", "blocker", "asap"]
+style = "Professional and concise. Open with 'Hi {first name},'. Lead with the answer. Sign off 'Best regards, Alex Morgan, Product Lead'."
+  [[accounts.categories]]
+  name = "Clients"
+  from = ["@bigclient.example", "@acme.example"]
+  [[accounts.categories]]
+  name = "Team"
+  from = ["@company.example"]
+
+[[accounts]]
+email = "hello@mystudio.example"
+label = "Side Business"
+color = "#f59e0b"
+vip = ["@shopify.com"]
+urgent_keywords = ["order", "refund", "chargeback", "urgent"]
+style = "Friendly, upbeat customer-service tone. Thank them first. Sign off 'Thanks so much! Alex — My Studio'."
+  [[accounts.categories]]
+  name = "Orders"
+  subject = ["order", "purchase", "refund"]
+  [[accounts.categories]]
+  name = "Leads"
+  subject = ["quote", "enquiry", "inquiry", "collab"]
+
+[[accounts]]
+email = "alex@uni.example"
+label = "School"
+color = "#10b981"
+vip = ["@uni.example"]
+urgent_keywords = ["due", "deadline", "exam", "submission"]
+style = "Polite and formal. Open with 'Hello {first name},'. Sign off 'Kind regards, Alex'."
+  [[accounts.categories]]
+  name = "Courses"
+  subject = ["assignment", "lecture", "course", "grade"]
