@@ -32,7 +32,7 @@ class Mcp(private val http: OkHttpClient, private val auth: Auth, private val ur
             .header("Accept", "application/json, text/event-stream")
             .header("MCP-Protocol-Version", protocol)
             .apply { if (sessionId != null) header("Mcp-Session-Id", sessionId) }
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .post(Auth.jsonBody(body.toString()))
             .build()
         http.newCall(req).execute().use { r ->
             if (r.code == 401) throw Unauthorized()

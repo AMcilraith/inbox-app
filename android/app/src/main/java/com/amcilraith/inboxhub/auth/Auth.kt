@@ -33,6 +33,14 @@ class Auth(context: Context, private val http: OkHttpClient) {
         const val RESOURCE = "https://mcp.mail.superhuman.com/mcp"
         const val REDIRECT = "com.amcilraith.inboxhub:/oauth"
         const val SCOPES = "openid email profile offline_access"
+        /** v2: registered as application_type=native (v1 was registered as "web"). */
+        private const val CLIENT_KEY = "client_id_native_v2"
+
+        /**
+         * Exactly `Content-Type: application/json`. OkHttp adds "; charset=utf-8" to String bodies,
+         * so the JSON is sent as bytes to match what the desktop app sends.
+         */
+        fun jsonBody(json: String) = json.toByteArray(Charsets.UTF_8).toRequestBody("application/json".toMediaType())
     }
 
     private val prefs = context.getSharedPreferences("superhuman-auth", Context.MODE_PRIVATE)
@@ -65,10 +73,12 @@ class Auth(context: Context, private val http: OkHttpClient) {
     }
 
     private suspend fun clientId(m: Meta): String {
-        prefs.getString("client_id", null)?.let { return it }
+        prefs.getString(CLIENT_KEY, null)?.let { return it }
         val reg = m.register ?: throw Exception("Superhuman does not allow app registration")
         val body = obj(
             "client_name" to "Inbox Hub (Android)",
+            // A phone app signing in through an app link (com.amcilraith.inboxhub:/oauth) is a native client.
+            "application_type" to "native",
             "redirect_uris" to listOf(REDIRECT),
             "grant_types" to listOf("authorization_code", "refresh_token"),
             "response_types" to listOf("code"),
@@ -76,13 +86,13 @@ class Auth(context: Context, private val http: OkHttpClient) {
             "scope" to SCOPES,
         ).toString()
         val id = withContext(Dispatchers.IO) {
-            http.newCall(Request.Builder().url(reg).post(body.toRequestBody("application/json".toMediaType())).build()).execute().use { r ->
+            http.newCall(Request.Builder().url(reg).post(jsonBody(body)).build()).execute().use { r ->
                 val text = r.body!!.string()
                 if (!r.isSuccessful) throw Exception("Registering with Superhuman failed (${r.code}): $text")
                 json.parseToJsonElement(text)["client_id"].str() ?: throw Exception("No client_id from Superhuman")
             }
         }
-        prefs.edit().putString("client_id", id).apply()
+        prefs.edit().putString(CLIENT_KEY, id).apply()
         return id
     }
 
