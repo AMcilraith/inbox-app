@@ -639,6 +639,7 @@ fn wire(app: &MainWindow, ctx: &Arc<Ctx>, pending: &Pending, chat: &Rc<VecModel<
         ctx.spawn(async move {
             c.hub.clear_cache().await;
             let r = c.hub.link_account().await;
+            let c2 = c.clone();
             later(&w, move |app| match r {
                 Ok(v) => {
                     let url = v["continueUrl"].as_str().or(v["url"].as_str()).unwrap_or("").to_string();
@@ -647,9 +648,81 @@ fn wire(app: &MainWindow, ctx: &Arc<Ctx>, pending: &Pending, chat: &Rc<VecModel<
                     } else {
                         let _ = open::that(&url);
                         app.set_link_url(ss(&url));
-                        app.set_link_note(ss("A Superhuman page opened in your browser. Sign in there as the other account and approve (the link is valid for 10 minutes), then press Refresh here."));
+                        app.set_link_note(ss("A Superhuman page opened in your browser. Sign in there as the other account and approve. It shows up here by itself (the link works for 10 minutes)."));
+                        watch_for_new_account(&c2, &app);
                     }
                 }
+                Err(e) => toast(&app, format!("{e:#}")),
+            });
+        });
+    });
+    {
+        let pending = pending.clone();
+        on!(on_thread_action, |app, ctx, action: SharedString| {
+            let action = action.to_string();
+            let (account, id, last) = (app.get_thread_account().to_string(), app.get_thread_id().to_string(), app.get_thread_last_id().to_string());
+            let run = {
+                let w = app.as_weak();
+                let c = ctx.clone();
+                let action = action.clone();
+                move || {
+                    let c2 = c.clone();
+                    c.spawn(async move {
+                        let r = c2.hub.thread_action(&account, &id, &last, &action).await;
+                        let c3 = c2.clone();
+                        later(&w, move |app| match r {
+                            Ok(msg) => {
+                                toast(&app, msg);
+                                match action.as_str() {
+                                    "star" => app.set_thread_starred(true),
+                                    "unstar" => app.set_thread_starred(false),
+                                    "important" => app.set_thread_important(true),
+                                    "other" => app.set_thread_important(false),
+                                    "read" | "unread" => {}
+                                    _ => app.set_thread_open(false), // done, reminders, trash, spam, unsubscribe
+                                }
+                                load_view(&c3, &app);
+                            }
+                            Err(e) => toast(&app, format!("{e:#}")),
+                        });
+                    });
+                }
+            };
+            match action.as_str() {
+                "trash" => ask_confirm(&app, &pending, "Move this conversation to the trash?", "Move to trash", run),
+                "spam" => ask_confirm(&app, &pending, "Mark this conversation as spam and move it to the trash?", "Mark as spam", run),
+                "unsubscribe" => ask_confirm(&app, &pending, "Unsubscribe from this mailing list and trash this email?", "Unsubscribe", run),
+                _ => run(),
+            }
+        });
+    }
+    {
+        let pending = pending.clone();
+        on!(on_remove_account, |app, ctx, email: SharedString| {
+            let email = email.to_string();
+            let w = app.as_weak();
+            let c = ctx.clone();
+            ask_confirm(&app, &pending, &format!("Unlink {email} from Inbox Hub? You can link it again any time."), "Unlink", move || {
+                let c2 = c.clone();
+                c.spawn(async move {
+                    let r = c2.hub.remove_account(&email).await;
+                    let c3 = c2.clone();
+                    later(&w, move |app| match r {
+                        Ok(()) => { toast(&app, "Account unlinked"); load_view(&c3, &app); }
+                        Err(e) => toast(&app, format!("{e:#}")),
+                    });
+                });
+            });
+        });
+    }
+    on!(on_make_primary, |app, ctx, email: SharedString| {
+        let w = app.as_weak();
+        let c = ctx.clone();
+        ctx.spawn(async move {
+            let r = c.hub.make_primary(&email).await;
+            let c2 = c.clone();
+            later(&w, move |app| match r {
+                Ok(()) => { toast(&app, format!("{email} is now your primary account")); load_view(&c2, &app); }
                 Err(e) => toast(&app, format!("{e:#}")),
             });
         });
@@ -1002,6 +1075,10 @@ fn open_thread(ctx: &Arc<Ctx>, app: &MainWindow, account: String, id: String) {
                     app.set_thread_subject(ss(if t.subject.is_empty() { "(no subject)" } else { &t.subject }));
                     app.set_thread_account(ss(&account));
                     app.set_thread_id(ss(&id));
+                    app.set_thread_last_id(ss(t.messages.last().map(|m| m.id.clone()).unwrap_or_else(|| id.clone())));
+                    let summary = c2.st().threads.iter().find(|x| x.id == id && x.account == account).cloned();
+                    app.set_thread_starred(summary.as_ref().is_some_and(|x| x.starred));
+                    app.set_thread_important(summary.as_ref().map_or(true, |x| x.important));
                     app.set_thread_account_label(ss(label));
                     app.set_thread_color(color);
                     if changed {
@@ -1369,4 +1446,29 @@ fn sender_line(addr: &str) -> String {
 fn refresh_ai_state(ctx: &Arc<Ctx>, app: &MainWindow) {
     app.set_ai_enabled(!ctx.hub.demo());
     app.set_model_name(ss(if ctx.hub.demo() { "" } else { "Synced with your phone" }));
+}
+
+/// After "Link another account": check every 5 seconds (for up to 10 minutes) and refresh as soon
+/// as Superhuman reports the new account.
+fn watch_for_new_account(ctx: &Arc<Ctx>, app: &MainWindow) {
+    let w = app.as_weak();
+    let c = ctx.clone();
+    ctx.spawn(async move {
+        let before = c.hub.account_count_fresh().await.unwrap_or(0);
+        for _ in 0..120 {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            if let Ok(n) = c.hub.account_count_fresh().await {
+                if n > before {
+                    let c2 = c.clone();
+                    later(&w, move |app| {
+                        app.set_link_note(SharedString::new());
+                        app.set_link_url(SharedString::new());
+                        toast(&app, "New account linked — loading its mail");
+                        load_view(&c2, &app);
+                    });
+                    return;
+                }
+            }
+        }
+    });
 }

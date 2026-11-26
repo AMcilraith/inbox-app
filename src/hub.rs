@@ -7,7 +7,7 @@ use crate::{
     model::{self, Event, Thread, ThreadFull},
 };
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, Utc};
 use futures::future::join_all;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -828,5 +828,70 @@ mod ask_history_tests {
         assert_eq!(merged.msgs.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), vec!["a", "c", "b"]);
         let cleared = merged.merge(AskHistory { cleared_at: 2, msgs: vec![] });
         assert_eq!(cleared.msgs.iter().map(|x| x.id.as_str()).collect::<Vec<_>>(), vec!["b"]);
+    }
+}
+
+impl Hub {
+    /// Superhuman thread actions from the email view's toolbar.
+    pub async fn thread_action(&self, account: &str, thread_id: &str, last_message_id: &str, action: &str) -> Result<String> {
+        let mcp = self.mcp()?;
+        let tz = self.cfg.tz()?;
+        let update = |extra: Value| {
+            let mut args = json!({"thread_id": thread_id, "last_message_id": last_message_id});
+            for (k, v) in extra.as_object().cloned().unwrap_or_default() {
+                args[k] = v;
+            }
+            args
+        };
+        let local_at = |days: i64, h: u32| {
+            let d = tz.now().date() + Duration::days(days);
+            tz.to_utc(d.and_hms_opt(h, 0, 0).unwrap()).to_rfc3339()
+        };
+        let msg = match action {
+            "done" => { mcp.call_as(account, "update_thread", update(json!({"mark_done": true, "mark_read": true}))).await?; "Marked done" }
+            "star" => { mcp.call_as(account, "update_thread", update(json!({"mark_starred": true}))).await?; "Starred" }
+            "unstar" => { mcp.call_as(account, "update_thread", update(json!({"mark_starred": false}))).await?; "Unstarred" }
+            "read" => { mcp.call_as(account, "update_thread", update(json!({"mark_read": true}))).await?; "Marked read" }
+            "unread" => { mcp.call_as(account, "update_thread", update(json!({"mark_read": false}))).await?; "Marked unread" }
+            "important" => { mcp.call_as(account, "update_thread", update(json!({"mark_important": true}))).await?; "Moved to Important" }
+            "other" => { mcp.call_as(account, "update_thread", update(json!({"mark_important": false}))).await?; "Moved to Other" }
+            "remind-3h" | "remind-tomorrow" | "remind-monday" => {
+                let at = match action {
+                    "remind-3h" => (Utc::now() + Duration::hours(3)).to_rfc3339(),
+                    "remind-tomorrow" => local_at(1, 8),
+                    _ => {
+                        let today = tz.now().date();
+                        let ahead = (7 - today.weekday().num_days_from_monday() as i64) % 7;
+                        local_at(if ahead == 0 { 7 } else { ahead }, 8)
+                    }
+                };
+                mcp.call_as(account, "create_or_update_reminder", json!({"thread_id": thread_id, "remind_at": at})).await?;
+                "Reminder set — it'll come back to the top of your inbox"
+            }
+            "trash" => { mcp.call_as(account, "trash_thread", json!({"thread_id": thread_id})).await?; "Moved to trash" }
+            "spam" => { mcp.call_as(account, "mark_spam", json!({"thread_id": thread_id, "also_trash": true})).await?; "Marked as spam" }
+            "unsubscribe" => { mcp.call_as(account, "unsubscribe", json!({"thread_id": thread_id, "also_trash": true})).await?; "Unsubscribed" }
+            other => return Err(anyhow!("unknown action {other}")),
+        };
+        self.clear_cache().await;
+        Ok(msg.to_string())
+    }
+
+    pub async fn make_primary(&self, email: &str) -> Result<()> {
+        self.mcp()?.call("set_default_account", json!({"account_email": email})).await?;
+        self.clear_cache().await;
+        Ok(())
+    }
+
+    pub async fn remove_account(&self, email: &str) -> Result<()> {
+        self.mcp()?.call("remove_account", json!({"account_email": email})).await?;
+        self.clear_cache().await;
+        Ok(())
+    }
+
+    /// Number of linked accounts, bypassing the cache (used to notice a newly linked account).
+    pub async fn account_count_fresh(&self) -> Result<usize> {
+        self.clear_cache().await;
+        Ok(self.account_emails().await?.len())
     }
 }

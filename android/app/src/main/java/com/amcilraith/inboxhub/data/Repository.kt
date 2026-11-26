@@ -67,11 +67,12 @@ class Repository private constructor(context: Context) {
     }
 
     /** Reply from the account that owns the thread. Sending goes through Superhuman (1-minute undo there). */
-    suspend fun reply(account: String, threadId: String, text: String, send: Boolean): String {
+    suspend fun reply(account: String, threadId: String, text: String, send: Boolean, draftId: String? = null): String {
         val html = text.split("\n\n").joinToString("") { p ->
             "<p>" + p.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>") + "</p>"
         }
-        val draft = mcp.call("create_or_update_draft", obj("type" to "reply", "thread_id" to threadId, "body" to html), account)
+        // Update the draft Superhuman's writer made (if any) instead of creating a second one.
+        val draft = mcp.call("create_or_update_draft", obj("type" to "reply", "thread_id" to threadId, "body" to html, "draft_id" to draftId), account)
         val draftId = draft["draft"]["draft_id"].str() ?: draft["draft_id"].str() ?: throw Exception("Superhuman returned no draft")
         if (!send) return "Saved to your Superhuman drafts"
         mcp.call("send_draft", obj("draft_id" to draftId), account)
@@ -105,4 +106,70 @@ class Repository private constructor(context: Context) {
     }
 
     fun now(): Instant = Instant.now()
+
+    // ------------------------------------------------------------ Superhuman AI
+
+    /** Ask Superhuman's assistant across every linked account; each answer labelled by account. */
+    suspend fun askSuperhuman(question: String, accounts: List<Account>): String = coroutineScope {
+        val answers = accounts.map { a ->
+            async { a.email to runCatching { mcp.call("query_email_and_calendar", obj("question" to question), a.email) } }
+        }.awaitAll()
+        val ok = answers.mapNotNull { (email, r) ->
+            r.getOrNull()?.let { v ->
+                val text = v.str() ?: listOf("answer", "response", "text", "result", "message", "summary").firstNotNullOfOrNull { v[it].str() } ?: v.toString()
+                (email to text).takeIf { text.isNotBlank() }
+            }
+        }
+        if (ok.isEmpty()) throw answers.firstNotNullOfOrNull { it.second.exceptionOrNull() } ?: Exception("Superhuman had no answer")
+        if (ok.size == 1) ok[0].second else ok.joinToString("\n\n") { (email, text) -> "**${displayName(email)}**\n$text" }
+    }
+
+    /** Draft a reply with Superhuman's writer; returns the text and the draft it saved. */
+    suspend fun draftWithSuperhuman(account: String, threadId: String, instructions: String): Pair<String, String?> {
+        val d = mcp.call(
+            "create_or_update_draft",
+            obj("type" to "reply", "thread_id" to threadId, "instructions" to instructions.ifBlank { "Write the most sensible reply." }),
+            account,
+        )
+        val draftId = d["draft"]["draft_id"].str() ?: d["draft_id"].str()
+        var body = d["draft"]["body"].str() ?: d["body"].str()
+        if (body == null && draftId != null) {
+            val full = mcp.call("get_draft", obj("draft_id" to draftId), account)
+            body = full["body"].str() ?: full["draft"]["body"].str()
+        }
+        val text = htmlToText(body.orEmpty())
+        if (text.isBlank()) throw Exception("Superhuman didn't return a draft")
+        return text to draftId
+    }
+
+    // ------------------------------------------------------------ shared Ask history
+
+    private suspend fun askSnippet(primary: String): Pair<String?, AskHistory> {
+        val list = mcp.call("list_snippets", obj("query" to AskHistory.SNIPPET, "include_team" to false), primary)
+        val id = list["snippets"].arr().firstOrNull { it["name"].str() == AskHistory.SNIPPET }?.get("id").str()
+        val history = id?.let {
+            val snip = mcp.call("get_snippet", obj("id" to it), primary)
+            AskHistory.decode(snip["body"].str().orEmpty())
+        } ?: AskHistory()
+        return id to history
+    }
+
+    suspend fun loadAskHistory(primary: String): AskHistory = askSnippet(primary).second.merge(AskHistory())
+
+    suspend fun syncAskHistory(primary: String, local: AskHistory): AskHistory {
+        val (id, remote) = askSnippet(primary)
+        val merged = remote.merge(local)
+        mcp.call("create_or_update_snippet", obj("id" to id, "name" to AskHistory.SNIPPET, "body" to merged.encode()), primary)
+        return merged
+    }
+
+    // ------------------------------------------------------------ thread actions
+
+    suspend fun remind(t: ThreadSummary, at: Instant) {
+        mcp.call("create_or_update_reminder", obj("thread_id" to t.id, "remind_at" to at.toString()), t.account)
+    }
+
+    suspend fun setImportant(t: ThreadSummary, important: Boolean) {
+        mcp.call("update_thread", obj("thread_id" to t.id, "last_message_id" to t.lastMessageId, "mark_important" to important), t.account)
+    }
 }

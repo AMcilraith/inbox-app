@@ -30,6 +30,11 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.MailOutline
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
@@ -127,7 +132,7 @@ fun App(vm: AppViewModel, opener: UrlOpener) {
         snackbarHost = { SnackbarHost(snack) },
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
-                listOf(Tab.Inbox to Icons.Filled.Email, Tab.Calendar to Icons.Filled.DateRange, Tab.Settings to Icons.Filled.Settings).forEach { (t, icon) ->
+                listOf(Tab.Inbox to Icons.Filled.Email, Tab.Ask to Icons.Filled.Search, Tab.Calendar to Icons.Filled.DateRange, Tab.Settings to Icons.Filled.Settings).forEach { (t, icon) ->
                     NavigationBarItem(selected = vm.tab == t, onClick = { vm.selectTab(t) }, icon = { Icon(icon, null) }, label = { Text(t.name) })
                 }
             }
@@ -135,6 +140,7 @@ fun App(vm: AppViewModel, opener: UrlOpener) {
     ) { pad ->
         when (vm.tab) {
             Tab.Inbox -> InboxScreen(vm, Modifier.padding(pad))
+            Tab.Ask -> AskScreen(vm, Modifier.padding(pad))
             Tab.Calendar -> CalendarScreen(vm, Modifier.padding(pad))
             Tab.Settings -> SettingsScreen(vm, opener, Modifier.padding(pad))
         }
@@ -288,6 +294,22 @@ fun ThreadScreen(vm: AppViewModel, modifier: Modifier) {
             actions = {
                 IconButton(onClick = { vm.toggleStar(s) }) { Icon(Icons.Filled.Star, "Star", tint = if (s.starred) Tones.med else MaterialTheme.colorScheme.onSurfaceVariant) }
                 IconButton(onClick = { vm.markDone(s) }) { Icon(Icons.Filled.Check, "Done") }
+                var menu by remember { mutableStateOf(false) }
+                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, "More") }
+                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    val zone = vm.zone
+                    val now = java.time.ZonedDateTime.now(zone)
+                    val tomorrow8 = now.toLocalDate().plusDays(1).atTime(8, 0).atZone(zone)
+                    val monday8 = now.toLocalDate().with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.MONDAY)).atTime(8, 0).atZone(zone)
+                    DropdownMenuItem(text = { Text("Remind me in 3 hours") }, onClick = { menu = false; vm.remind(s, now.plusHours(3).toInstant(), "later today") })
+                    DropdownMenuItem(text = { Text("Remind me tomorrow 8 AM") }, onClick = { menu = false; vm.remind(s, tomorrow8.toInstant(), "tomorrow 8 AM") })
+                    DropdownMenuItem(text = { Text("Remind me Monday 8 AM") }, onClick = { menu = false; vm.remind(s, monday8.toInstant(), "Monday 8 AM") })
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        text = { Text(if (s.important) "Move to Other" else "Move to Important") },
+                        onClick = { menu = false; vm.setImportant(s, !s.important) },
+                    )
+                }
             },
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
         )
@@ -313,6 +335,15 @@ fun ThreadScreen(vm: AppViewModel, modifier: Modifier) {
             }
         }
         Surface(color = MaterialTheme.colorScheme.surface, border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+          Column {
+            Row(Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    onClick = { vm.draftWithAi(reply) { reply = it } },
+                    enabled = t != null && !vm.drafting,
+                ) { Text(if (vm.drafting) "Drafting…" else "✦ Draft with Superhuman AI") }
+                Spacer(Modifier.weight(1f))
+                Text("Type instructions first, or leave empty", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
                 OutlinedTextField(
                     value = reply, onValueChange = { reply = it },
@@ -324,6 +355,7 @@ fun ThreadScreen(vm: AppViewModel, modifier: Modifier) {
                     Icon(Icons.AutoMirrored.Filled.Send, "Send")
                 }
             }
+          }
         }
     }
     if (confirm) {
@@ -482,4 +514,79 @@ fun SettingsScreen(vm: AppViewModel, opener: UrlOpener, modifier: Modifier) {
 @Composable
 private fun SectionTitle(text: String) {
     Text(text.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp))
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AskScreen(vm: AppViewModel, modifier: Modifier) {
+    var input by rememberSaveable { mutableStateOf("") }
+    val list = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(vm.chat.size, vm.asking) { if (vm.chat.isNotEmpty()) list.animateScrollToItem(vm.chat.size - 1 + if (vm.asking) 1 else 0) }
+    Column(modifier.fillMaxSize().imePadding()) {
+        TopAppBar(
+            title = {
+                Column {
+                    Text("Ask Superhuman AI", fontWeight = FontWeight.Bold)
+                    Text("Shared with Inbox Hub on your computer", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            actions = { TextButton(onClick = { vm.clearAsk() }) { Text("New") } },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+        )
+        PullToRefreshBox(isRefreshing = false, onRefresh = { vm.loadAsk() }, modifier = Modifier.weight(1f)) {
+            LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                if (vm.chat.isEmpty() && !vm.asking) item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Ask anything about your email and calendars, across every account.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        listOf("What needs a reply today?", "What's on my calendar this week?", "Any bills or deadlines coming up?", "Who am I waiting on?").forEach { q ->
+                            OutlinedButton(onClick = { vm.ask(q) }) { Text(q) }
+                        }
+                    }
+                }
+                items(vm.chat, key = { it.id }) { m ->
+                    val mine = m.role == "user"
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (mine) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth(0.86f).let { if (mine) it else it },
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                SelectionContainer {
+                                    Text(
+                                        if (mine) m.text else m.text.replace("**", ""),
+                                        color = if (mine) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 14.sp, lineHeight = 20.sp,
+                                    )
+                                }
+                                if (!mine && m.device == "desktop") {
+                                    Text("asked on your computer", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+                if (vm.asking) item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Superhuman AI is thinking…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+        Surface(color = MaterialTheme.colorScheme.surface, border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+            Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Bottom) {
+                OutlinedTextField(
+                    value = input, onValueChange = { input = it },
+                    placeholder = { Text("Ask about your email or calendar…") },
+                    modifier = Modifier.weight(1f), maxLines = 4, shape = RoundedCornerShape(12.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                IconButton(onClick = { vm.ask(input); input = "" }, enabled = input.isNotBlank() && !vm.asking) {
+                    Icon(Icons.AutoMirrored.Filled.Send, "Ask")
+                }
+            }
+        }
+    }
 }

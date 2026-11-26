@@ -9,6 +9,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.amcilraith.inboxhub.auth.SignInRequired
 import com.amcilraith.inboxhub.data.Account
+import com.amcilraith.inboxhub.data.AskHistory
+import com.amcilraith.inboxhub.data.ChatMsg
 import com.amcilraith.inboxhub.data.CalEvent
 import com.amcilraith.inboxhub.data.Repository
 import com.amcilraith.inboxhub.data.ThreadDetail
@@ -17,7 +19,7 @@ import com.amcilraith.inboxhub.work.MailCheckWorker
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 
-enum class Tab { Inbox, Calendar, Settings }
+enum class Tab { Inbox, Ask, Calendar, Settings }
 enum class Split(val label: String, val api: String?) { Important("Important", "Important"), Other("Other", "Other"), All("All", null) }
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -41,6 +43,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var openLoading by mutableStateOf(false); private set
     var sending by mutableStateOf(false); private set
     var notificationsOn by mutableStateOf(prefs.getBoolean("enabled", true)); private set
+    var chat by mutableStateOf<List<ChatMsg>>(emptyList()); private set
+    var asking by mutableStateOf(false); private set
+    var drafting by mutableStateOf(false); private set
+    /** Draft Superhuman's writer saved for the open thread; Send updates it instead of making another. */
+    private var aiDraft: Pair<String, String>? = null
 
     fun colorOf(email: String): Long = accounts.firstOrNull { it.email == email }?.color ?: 0xFF6B6B73
 
@@ -82,7 +89,92 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun selectSplit(s: Split) { split = s; threads = emptyList(); refresh() }
     fun selectAccount(email: String?) { accountFilter = email; refresh() }
-    fun selectTab(t: Tab) { tab = t; if (t != Tab.Settings) refresh() }
+    fun selectTab(t: Tab) {
+        tab = t
+        when (t) {
+            Tab.Ask -> loadAsk()
+            Tab.Settings -> {}
+            else -> refresh()
+        }
+    }
+
+    // ---- Ask Superhuman AI (conversation shared with the desktop app) ----
+    private suspend fun primary(): String {
+        if (accounts.isEmpty()) accounts = repo.accounts()
+        return accounts.firstOrNull { it.primary }?.email ?: accounts.first().email
+    }
+
+    private fun msg(role: String, text: String) =
+        ChatMsg(java.lang.Long.toHexString(java.util.Random().nextLong()), role, text, System.currentTimeMillis(), "phone")
+
+    fun loadAsk() {
+        if (!signedIn) return
+        viewModelScope.launch {
+            try { chat = repo.loadAskHistory(primary()).msgs } catch (e: Throwable) { fail(e) }
+        }
+    }
+
+    fun ask(question: String) {
+        val q = question.trim()
+        if (q.isEmpty() || asking) return
+        val mine = msg("user", q)
+        chat = chat + mine
+        asking = true
+        viewModelScope.launch {
+            try {
+                if (accounts.isEmpty()) accounts = repo.accounts()
+                val answer = repo.askSuperhuman(q, accounts)
+                val ai = msg("ai", answer)
+                chat = chat + ai
+                chat = repo.syncAskHistory(primary(), AskHistory(0, listOf(mine, ai))).msgs
+            } catch (e: Throwable) {
+                fail(e)
+            } finally {
+                asking = false
+            }
+        }
+    }
+
+    fun clearAsk() {
+        chat = emptyList()
+        viewModelScope.launch {
+            try { repo.syncAskHistory(primary(), AskHistory(System.currentTimeMillis(), emptyList())) } catch (e: Throwable) { fail(e) }
+        }
+    }
+
+    // ---- Draft with Superhuman AI ----
+    fun draftWithAi(instructions: String, onText: (String) -> Unit) {
+        val t = open ?: return
+        drafting = true
+        viewModelScope.launch {
+            try {
+                val (text, draftId) = repo.draftWithSuperhuman(t.account, t.id, instructions)
+                aiDraft = draftId?.let { t.id to it }
+                onText(text)
+            } catch (e: Throwable) {
+                fail(e)
+            } finally {
+                drafting = false
+            }
+        }
+    }
+
+    fun remind(t: ThreadSummary, at: java.time.Instant, label: String) {
+        val before = threads
+        threads = threads.filterNot { it.id == t.id && it.account == t.account }
+        if (openSummary?.id == t.id) closeThread()
+        viewModelScope.launch {
+            try { repo.remind(t, at); toast = "Reminder set for $label" } catch (e: Throwable) { threads = before; fail(e) }
+        }
+    }
+
+    fun setImportant(t: ThreadSummary, important: Boolean) {
+        val before = threads
+        if (split != Split.All) threads = threads.filterNot { it.id == t.id && it.account == t.account }
+        viewModelScope.launch {
+            try { repo.setImportant(t, important); toast = if (important) "Moved to Important" else "Moved to Other" } catch (e: Throwable) { threads = before; fail(e) }
+        }
+    }
 
     // ---- sign-in ----
     suspend fun authorizeUrl(): Uri? = try {
@@ -171,7 +263,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         sending = true
         viewModelScope.launch {
             try {
-                toast = repo.reply(t.account, t.id, text, send)
+                val draftId = aiDraft?.takeIf { it.first == t.id }?.second
+                toast = repo.reply(t.account, t.id, text, send, draftId)
+                if (send) aiDraft = null
                 onDone()
             } catch (e: Throwable) {
                 fail(e)
