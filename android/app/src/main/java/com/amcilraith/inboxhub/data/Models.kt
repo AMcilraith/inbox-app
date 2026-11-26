@@ -45,12 +45,7 @@ data class CalEvent(
 /** Muted account colours that sit well on the white/charcoal theme. */
 val ACCOUNT_COLORS = listOf(0xFF5B5BD6, 0xFF0F8FB3, 0xFFC27C0E, 0xFF2F855A, 0xFFB83280, 0xFF6B6B73)
 
-fun displayName(addr: String): String {
-    val lt = addr.indexOf('<')
-    if (lt > 0) addr.substring(0, lt).trim().trim('"').takeIf { it.isNotEmpty() }?.let { return it }
-    val local = addr.trim('<', '>').substringBefore('@')
-    return local.split('.', '_', '-', '+').filter { it.isNotEmpty() }.joinToString(" ") { p -> p.replaceFirstChar { it.uppercase() } }
-}
+fun displayName(addr: String): String = Names.displayName(addr)
 
 fun htmlToText(html: String): String =
     HtmlCompat.fromHtml(html, HtmlCompat.FROM_HTML_MODE_COMPACT).toString()

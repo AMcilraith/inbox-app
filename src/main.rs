@@ -9,6 +9,7 @@ mod demo;
 mod hub;
 mod mcp;
 mod model;
+mod names;
 mod oauth;
 mod text;
 mod time;

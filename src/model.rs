@@ -83,24 +83,9 @@ fn time(v: &Value, k: &str) -> Option<DateTime<Utc>> {
     v.get(k)?.as_str().and_then(|t| DateTime::parse_from_rfc3339(t).ok()).map(|t| t.with_timezone(&Utc))
 }
 
-/// "jane.doe@x.com" -> "Jane Doe"; "Jane <jane@x>" -> "Jane".
+/// Readable sender name from an address (see `names.rs`).
 pub fn display_name(addr: &str) -> String {
-    if let Some(i) = addr.find('<') {
-        let n = addr[..i].trim().trim_matches('"').trim();
-        if !n.is_empty() {
-            return n.to_string();
-        }
-    }
-    let local = addr.trim_matches(|c| c == '<' || c == '>').split('@').next().unwrap_or(addr);
-    local
-        .split(|c: char| c == '.' || c == '_' || c == '-' || c == '+')
-        .filter(|p| !p.is_empty())
-        .map(|p| {
-            let mut c = p.chars();
-            c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
+    crate::names::display_name(addr)
 }
 
 pub fn first_name(addr: &str) -> String {
@@ -313,7 +298,7 @@ mod tests {
     fn names() {
         assert_eq!(display_name("jane.doe@x.com"), "Jane Doe");
         assert_eq!(display_name("\"Bob Ray\" <b@x.com>"), "Bob Ray");
-        assert_eq!(first_name("meadowoodpremierdentistry@gmail.com"), "Meadowoodpremierdentistry");
+        assert_eq!(first_name("meadowoodpremierdentistry@gmail.com"), "Meadowood");
     }
 
     #[test]

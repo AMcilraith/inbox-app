@@ -146,7 +146,7 @@ impl Hub {
         let p = self.prefs(email);
         Account {
             email: email.into(),
-            label: p.label.clone().unwrap_or_else(|| email.split('@').next().unwrap_or(email).to_string()),
+            label: p.label.clone().unwrap_or_else(|| crate::names::display_name(email)),
             color: p.color.clone().unwrap_or_else(|| PALETTE[idx % PALETTE.len()].to_string()),
             primary,
             style: p.style.clone(),

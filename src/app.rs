@@ -952,7 +952,7 @@ fn open_thread(ctx: &Arc<Ctx>, app: &MainWindow, account: String, id: String) {
                         .messages
                         .iter()
                         .map(|m| MessageItem {
-                            from: ss(&m.from),
+                            from: ss(sender_line(&m.from)),
                             to: ss(m.to.join(", ")),
                             when: ss(m.sent_at.map(|d| tz.local(d).format("%b %-d, %Y, %-I:%M %p").to_string()).unwrap_or_default()),
                             body: ss(text::html_to_text(&m.body)),
@@ -1314,4 +1314,11 @@ mod tests {
         assert_eq!(super::thousands(999), "999");
         assert_eq!(super::thousands(1_000_000), "1,000,000");
     }
+}
+
+/// "Meadowood Premier Dentistry · meadowoodpremierdentistry@gmail.com"
+fn sender_line(addr: &str) -> String {
+    let name = crate::model::display_name(addr);
+    let email = addr.rsplit('<').next().unwrap_or(addr).trim_end_matches('>').trim();
+    if name.eq_ignore_ascii_case(email) { name } else { format!("{name}  ·  {email}") }
 }
