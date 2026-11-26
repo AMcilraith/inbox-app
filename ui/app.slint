@@ -1,6 +1,6 @@
 // Inbox Hub — native desktop UI (Slint). The Rust side lives in src/app.rs.
 
-import { Button, LineEdit, TextEdit, ComboBox, CheckBox, ScrollView, ListView, Palette } from "std-widgets.slint";
+import { LineEdit, TextEdit, ComboBox, CheckBox, ScrollView, ListView, Palette } from "std-widgets.slint";
 
 // ------------------------------------------------------------------ data --
 
@@ -113,26 +113,64 @@ export struct Chip {
 // ---------------------------------------------------------------- theme --
 
 export global Theme {
-    in-out property <bool> dark: true;
-    out property <color> bg: dark ? #0c0d10 : #f6f7f9;
-    out property <color> panel: dark ? #15161b : #ffffff;
-    out property <color> panel-2: dark ? #1c1e24 : #f1f3f6;
-    out property <color> line: dark ? #272a32 : #e4e7ec;
-    out property <color> text: dark ? #eceef2 : #101828;
-    out property <color> muted: dark ? #9aa1ad : #667085;
-    out property <color> faint: dark ? #6b7280 : #98a2b3;
-    out property <color> accent: dark ? #8b7fff : #6d5efc;
-    out property <color> accent-soft: dark ? #25224a : #eeecff;
-    out property <color> high: dark ? #ff6b6f : #e5484d;
-    out property <color> high-soft: dark ? #3a1d1f : #fdecec;
-    out property <color> med: dark ? #f5a524 : #d97706;
-    out property <color> med-soft: dark ? #3a2c14 : #fdf3e2;
-    out property <color> low: dark ? #4cc38a : #3e8e65;
-    out property <color> low-soft: dark ? #16301f : #e8f5ee;
+    in-out property <bool> dark: false;
+    // neutral surfaces
+    out property <color> bg: dark ? #141416 : #f6f6f7;
+    out property <color> panel: dark ? #1c1c1f : #ffffff;
+    out property <color> panel-2: dark ? #242428 : #f1f1f3;
+    out property <color> line: dark ? #2e2e33 : #e6e6e9;
+    out property <color> text: dark ? #f1f1f2 : #1b1b1e;
+    out property <color> muted: dark ? #a3a3ab : #5c5c64;
+    out property <color> faint: dark ? #6f6f78 : #a1a1a9;
+    // charcoal accent in light mode, near-white accent in dark mode
+    out property <color> accent: dark ? #ececee : #2a2a2e;
+    out property <color> accent-hover: dark ? #ffffff : #3a3a3f;
+    out property <color> accent-soft: dark ? #2c2c31 : #ececef;
+    out property <color> on-accent: dark ? #161618 : #ffffff;
+    // status colours, slightly muted to sit well on grey
+    out property <color> high: dark ? #f0706f : #d64545;
+    out property <color> high-soft: dark ? #3a2323 : #fbeaea;
+    out property <color> med: dark ? #e5a54b : #b7791f;
+    out property <color> med-soft: dark ? #372d1d : #fbf2e3;
+    out property <color> low: dark ? #5cc08f : #2f855a;
+    out property <color> low-soft: dark ? #1d3127 : #e7f4ed;
     out property <color> shade: dark ? #ffffff06 : #0000000a;
 }
 
 // ----------------------------------------------------------- primitives --
+
+component Button inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    callback clicked;
+    min-height: 34px;
+    preferred-height: 34px;
+    min-width: label.preferred-width + 28px;
+    horizontal-stretch: 0;
+    border-radius: 8px;
+    border-width: primary ? 0px : 1px;
+    border-color: Theme.line;
+    opacity: enabled ? 1 : 0.45;
+    background: primary ? (ta.has-hover && enabled ? Theme.accent-hover : Theme.accent)
+        : (ta.has-hover && enabled ? Theme.panel-2 : Theme.panel);
+    animate background { duration: 120ms; }
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
+        clicked => { root.clicked(); }
+    }
+    label := Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        color: root.primary ? Theme.on-accent : Theme.text;
+        font-size: 13px;
+        font-weight: 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
 
 component Card inherits Rectangle {
     background: Theme.panel;
@@ -439,7 +477,8 @@ component NavButton inherits Rectangle {
     callback clicked;
     height: 34px;
     border-radius: 8px;
-    background: on ? Theme.accent-soft : ta.has-hover ? Theme.panel-2 : transparent;
+    background: on ? Theme.accent : ta.has-hover ? Theme.panel-2 : transparent;
+    animate background { duration: 120ms; }
     ta := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
@@ -450,15 +489,15 @@ component NavButton inherits Rectangle {
         spacing: 10px;
         Image {
             source: root.icon;
-            colorize: on ? Theme.accent : Theme.muted;
+            colorize: on ? Theme.on-accent : Theme.muted;
             width: 18px;
             height: 18px;
             y: (parent.height - self.height) / 2;
         }
         Text {
             text: root.text;
-            color: on ? Theme.accent : Theme.muted;
-            font-weight: on ? 600 : 400;
+            color: on ? Theme.on-accent : Theme.muted;
+            font-weight: on ? 600 : 450;
             vertical-alignment: center;
             horizontal-stretch: 1;
         }
@@ -546,8 +585,8 @@ component TimeGrid inherits Rectangle {
         y: head-h + allday-h + 1px;
         width: parent.width;
         height: parent.height - self.y;
-        viewport-width: self.visible-width;
-        viewport-height: (end-hour - start-hour) * hour-h + 8px;
+        content-width: self.visible-width;
+        content-height: (end-hour - start-hour) * hour-h + 8px;
         // working-hours shading
         if work-start >= 0: Rectangle {
             x: gutter;
@@ -697,7 +736,7 @@ component MonthGrid inherits Rectangle {
                 width: parent.width;
                 height: parent.height;
                 text: c.day;
-                color: c.is-today ? #ffffff : c.in-month ? Theme.text : Theme.faint;
+                color: c.is-today ? Theme.on-accent : c.in-month ? Theme.text : Theme.faint;
                 font-size: 12px;
                 font-weight: c.is-today ? 700 : 400;
                 horizontal-alignment: center;
@@ -887,8 +926,9 @@ export component MainWindow inherits Window {
     callback new-chat();
     callback confirm-yes();
 
+    property <int> chat-scroll-request: 0;
     public function scroll-chat-bottom() {
-        chat-sv.viewport-y = Math.min(0px, chat-sv.visible-height - chat-sv.viewport-height);
+        root.chat-scroll-request += 1;
     }
 
     function apply-theme() {
@@ -959,7 +999,7 @@ export component MainWindow inherits Window {
         // sidebar
         Rectangle {
             width: 236px;
-            background: Theme.panel;
+            background: Theme.dark ? Theme.bg : #fafafb;
             Rectangle {
                 x: parent.width - 1px;
                 width: 1px;
@@ -1108,7 +1148,7 @@ export component MainWindow inherits Window {
                 Rectangle {
                     height: 38px;
                     border-radius: 10px;
-                    background: ask-ta.has-hover ? Theme.accent.darker(0.1) : Theme.accent;
+                    background: ask-ta.has-hover ? Theme.accent-hover : Theme.accent;
                     ask-ta := TouchArea {
                         mouse-cursor: pointer;
                         clicked => { root.chat-open = !root.chat-open; }
@@ -1118,14 +1158,14 @@ export component MainWindow inherits Window {
                         spacing: 8px;
                         Image {
                             source: @image-url("../assets/icons/spark.svg");
-                            colorize: #ffffff;
+                            colorize: Theme.on-accent;
                             width: 14px;
                             height: 14px;
                             y: (parent.height - self.height) / 2;
                         }
                         Text {
                             text: "Ask Claude";
-                            color: #ffffff;
+                            color: Theme.on-accent;
                             font-weight: 600;
                             vertical-alignment: center;
                         }
@@ -1335,7 +1375,7 @@ export component MainWindow inherits Window {
                     spacing: 16px;
                     vertical-stretch: 1;
                     Card {
-                        width: Math.max(320px, parent.width * 0.38);
+                        width: Math.max(320px, (root.width - 300px) * 0.38);
                         VerticalLayout {
                             padding: 6px;
                             if root.inbox-error != "": Empty {
@@ -1844,6 +1884,10 @@ export component MainWindow inherits Window {
             Divider { }
             chat-sv := ScrollView {
                 vertical-stretch: 1;
+                // Scroll to the newest message whenever the app asks or the content grows.
+                property <int> scroll-req: root.chat-scroll-request;
+                changed scroll-req => { self.content-y = Math.min(0px, self.visible-height - self.content-height); }
+                changed content-height => { self.content-y = Math.min(0px, self.visible-height - self.content-height); }
                 VerticalLayout {
                     padding: 16px;
                     spacing: 10px;
@@ -1891,7 +1935,7 @@ export component MainWindow inherits Window {
                                     read-only: true;
                                     wrap: word-wrap;
                                     single-line: false;
-                                    color: m.mine ? #ffffff : m.error ? Theme.high : Theme.text;
+                                    color: m.mine ? Theme.on-accent : m.error ? Theme.high : Theme.text;
                                     selection-background-color: Theme.accent-soft;
                                 }
                                 if m.tools != "": Text {

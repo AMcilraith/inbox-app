@@ -155,8 +155,11 @@ impl Mcp {
 
     /// Call as a specific linked account.
     pub async fn call_as(&self, account: &str, name: &str, mut args: Value) -> Result<Value> {
-        if let Some(o) = args.as_object_mut() {
-            o.insert("acting_email".into(), Value::String(account.into()));
+        // Only a real address selects an account; anything else falls back to the primary one.
+        if account.contains('@') {
+            if let Some(o) = args.as_object_mut() {
+                o.insert("acting_email".into(), Value::String(account.into()));
+            }
         }
         self.call(name, args).await
     }

@@ -2,8 +2,8 @@
   <!-- Inbox Hub logo: three linked accounts (two dots and Claude's spark) flowing into one inbox tray. -->
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#7b6cff"/>
-      <stop offset="1" stop-color="#b45cf0"/>
+      <stop offset="0" stop-color="#3a3a3f"/>
+      <stop offset="1" stop-color="#1b1b1e"/>
     </linearGradient>
     <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0.18"/>

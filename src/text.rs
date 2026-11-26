@@ -5,7 +5,7 @@ pub fn html_to_text(html: &str) -> String {
     if !html.contains('<') {
         return crate::model::decode_entities(html).trim().to_string();
     }
-    let text = html2text::from_read(html.as_bytes(), 10_000).unwrap_or_else(|_| crate::model::strip_tags(html));
+    let text = html2text::from_read(html.as_bytes(), 10_000);
     tidy(&text)
 }
 

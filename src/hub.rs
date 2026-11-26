@@ -110,7 +110,10 @@ impl Hub {
                 return Ok(v.clone());
             }
         }
-        let v = self.mcp()?.call_as(account, tool, args).await?;
+        // "_" means "not tied to one account" (e.g. list_accounts): send no acting_email,
+        // because Superhuman rejects unknown accounts.
+        let mcp = self.mcp()?;
+        let v = if account == "_" { mcp.call(tool, args).await? } else { mcp.call_as(account, tool, args).await? };
         self.cache.lock().await.insert(key, (Instant::now(), v.clone()));
         Ok(v)
     }

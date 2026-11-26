@@ -4,3 +4,7 @@
 inbox-hub.toml
 .inbox-hub/
 inbox-hub-source.zip
+/logs
+/target-linux
+/parts
+*.zip
