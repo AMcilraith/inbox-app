@@ -839,7 +839,7 @@ fn apply_overview(ctx: &Arc<Ctx>, app: &MainWindow, ov: Overview) {
     let next = todays.iter().find(|e| !e.all_day && e.end > now).map(|e| e.title.clone());
     let unread: u64 = accts.iter().map(|a| a.unread).sum();
     let tiles = vec![
-        Tile { k: ss("Unread"), v: ss(unread.to_string()), h: ss(format!("{} account{}", accts.len(), if accts.len() == 1 { "" } else { "s" })) },
+        Tile { k: ss("Unread"), v: ss(thousands(unread)), h: ss(format!("{} account{}", accts.len(), if accts.len() == 1 { "" } else { "s" })) },
         Tile {
             k: ss("Needs reply"),
             v: ss(ov.todo.iter().filter(|t| t.thread.needs_reply).count().to_string()),
@@ -1291,4 +1291,27 @@ fn load_digest(ctx: &Arc<Ctx>, app: &MainWindow) {
             Err(e) => app.set_digest_note(ss(format!("{e:#}"))),
         });
     });
+}
+
+/// 16852 -> "16,852"
+fn thousands(n: u64) -> String {
+    let d = n.to_string();
+    let mut out = String::new();
+    for (i, c) in d.chars().enumerate() {
+        if i > 0 && (d.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn thousands() {
+        assert_eq!(super::thousands(16852), "16,852");
+        assert_eq!(super::thousands(999), "999");
+        assert_eq!(super::thousands(1_000_000), "1,000,000");
+    }
 }
