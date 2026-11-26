@@ -30,7 +30,6 @@ struct Ctx {
     rt: tokio::runtime::Handle,
     port: u16,
     data: PathBuf,
-    convo: tokio::sync::Mutex<Vec<serde_json::Value>>,
     st: Mutex<St>,
 }
 
@@ -48,6 +47,8 @@ struct St {
     cal_start: NaiveDate,
     cal_days: i64,
     cal_gen: u64,
+    /// (thread id, Superhuman draft id) made by Superhuman's writer, reused when sending.
+    sh_draft: Option<(String, String)>,
 }
 
 type Pending = Rc<RefCell<Option<Box<dyn FnOnce()>>>>;
@@ -219,13 +220,13 @@ pub fn run(hub: Arc<Hub>, auth: Option<Arc<Auth>>, port: u16, cfg_error: Option<
             cal_start: today,
             cal_days: 7,
             cal_gen: 0,
+            sh_draft: None,
         }),
         hub,
         auth,
         rt,
         port,
         data,
-        convo: tokio::sync::Mutex::new(Vec::new()),
     });
     let pending: Pending = Rc::new(RefCell::new(None));
     let chat: Rc<VecModel<ChatItem>> = Rc::new(VecModel::default());
@@ -237,8 +238,7 @@ pub fn run(hub: Arc<Hub>, auth: Option<Arc<Auth>>, port: u16, cfg_error: Option<
     };
     app.set_signed_in(signed_in);
     app.set_demo(ctx.hub.demo());
-    app.set_claude_enabled(ctx.hub.claude.is_some());
-    app.set_model_name(ss(ctx.hub.claude.as_ref().map(|c| c.model.clone()).unwrap_or_default()));
+    refresh_ai_state(&ctx, &app);
     app.set_banner_error(ss(cfg_error.unwrap_or_default()));
     let theme = std::fs::read_to_string(ctx.data.join("theme")).ok().map(|s| s.trim().to_string()).filter(|t| ["system", "light", "dark"].contains(&t.as_str()));
     app.set_theme_mode(ss(theme.unwrap_or_else(|| ctx.hub.cfg.theme.clone())));
@@ -397,10 +397,14 @@ fn wire(app: &MainWindow, ctx: &Arc<Ctx>, pending: &Pending, chat: &Rc<VecModel<
         let c = ctx.clone();
         ctx.spawn(async move {
             let r = c.hub.draft_reply(&account, &id, &guidance).await;
+            let c2 = c.clone();
             later(&w, move |app| {
                 app.set_drafting(false);
                 match r {
-                    Ok(t) => app.set_reply_text(ss(t.trim())),
+                    Ok((t, draft_id)) => {
+                        app.set_reply_text(ss(t.trim()));
+                        c2.st().sh_draft = draft_id.map(|d| (id.clone(), d));
+                    }
                     Err(e) => toast(&app, format!("{e:#}")),
                 }
             });
@@ -585,8 +589,8 @@ fn wire(app: &MainWindow, ctx: &Arc<Ctx>, pending: &Pending, chat: &Rc<VecModel<
     // digest
     on!(on_digest_preview, |app, ctx| {
         app.set_digest_busy(true);
-        let ai = ctx.hub.claude.is_some();
-        app.set_digest_note(ss(if ai { "Claude is writing today's digest…" } else { "Building today's digest…" }));
+        let ai = !ctx.hub.demo();
+        app.set_digest_note(ss(if ai { "Superhuman AI is writing today's briefing…" } else { "Building today's digest…" }));
         let w = app.as_weak();
         let c = ctx.clone();
         ctx.spawn(async move {
@@ -596,7 +600,7 @@ fn wire(app: &MainWindow, ctx: &Arc<Ctx>, pending: &Pending, chat: &Rc<VecModel<
                 match r {
                     Ok((subject, html)) => {
                         app.set_digest_title(ss(format!("{subject} (preview)")));
-                        app.set_digest_note(ss(if ai { "Written by Claude from all your accounts." } else { "Built-in template (add a Claude key for an AI-written digest)." }));
+                        app.set_digest_note(ss(if ai { "Built from all your accounts, with a briefing from Superhuman AI." } else { "Sample digest." }));
                         app.set_digest_body(ss(text::html_to_text(&html)));
                     }
                     Err(e) => {
@@ -671,13 +675,19 @@ fn wire(app: &MainWindow, ctx: &Arc<Ctx>, pending: &Pending, chat: &Rc<VecModel<
                 return;
             }
             chat.push(ChatItem { mine: true, text: ss(&q), tools: SharedString::new(), error: false });
+            let asked = new_msg("user", &q);
             app.set_chat_input(SharedString::new());
             app.set_chat_busy(true);
             scroll_chat(&app);
             let w = app.as_weak();
             let c = ctx.clone();
             ctx.spawn(async move {
-                let r = ask_claude(&c, q).await;
+                let r = ask_ai(&c, q).await;
+                // Save both sides of the exchange to the shared history (phone + desktop).
+                if let Ok((answer, _)) = &r {
+                    let local = crate::hub::AskHistory { cleared_at: 0, msgs: vec![asked, new_msg("ai", answer)] };
+                    let _ = c.hub.sync_ask_history(local).await;
+                }
                 later(&w, move |app| {
                     app.set_chat_busy(false);
                     let item = match r {
@@ -697,7 +707,42 @@ fn wire(app: &MainWindow, ctx: &Arc<Ctx>, pending: &Pending, chat: &Rc<VecModel<
         on!(on_new_chat, |_app, ctx| {
             chat.set_vec(Vec::new());
             let c = ctx.clone();
-            ctx.spawn(async move { c.convo.lock().await.clear() });
+            ctx.spawn(async move {
+                let clear = crate::hub::AskHistory { cleared_at: chrono::Utc::now().timestamp_millis(), msgs: vec![] };
+                let _ = c.hub.sync_ask_history(clear).await;
+            });
+        });
+    }
+    {
+        let chat = chat.clone();
+        on!(on_chat_opened, |app, ctx| {
+            // Pull in anything asked on the phone since last time.
+            let w = app.as_weak();
+            let c = ctx.clone();
+            let chat_len = chat.row_count();
+            ctx.spawn(async move {
+                let r = c.hub.load_ask_history().await;
+                later(&w, move |app| {
+                    if let Ok(h) = r {
+                        if !h.msgs.is_empty() || chat_len == 0 {
+                            let items: Vec<ChatItem> = h
+                                .msgs
+                                .iter()
+                                .map(|m| ChatItem {
+                                    mine: m.role == "user",
+                                    text: ss(if m.role == "user" { m.text.clone() } else { text::markdown_to_text(&m.text) }),
+                                    tools: ss(if m.role == "user" || m.device.is_empty() { String::new() } else { format!("from {}", m.device) }),
+                                    error: false,
+                                })
+                                .collect();
+                            if let Some(model) = app.get_chat().as_any().downcast_ref::<VecModel<ChatItem>>() {
+                                model.set_vec(items);
+                            }
+                            scroll_chat(&app);
+                        }
+                    }
+                });
+            });
         });
     }
 
@@ -734,28 +779,21 @@ fn pad_hm(s: &str) -> String {
     }
 }
 
-async fn ask_claude(c: &Ctx, q: String) -> Result<(String, String)> {
-    let claude = c.hub.claude.as_ref().ok_or_else(|| anyhow::anyhow!("Add a Claude API key (ANTHROPIC_API_KEY) to use Ask Claude"))?;
-    let mut history = c.convo.lock().await.clone();
-    history.push(serde_json::json!({"role": "user", "content": q}));
-    let mcp = match (&c.auth, c.hub.demo()) {
-        (Some(a), false) => Some((c.hub.cfg.mcp_url.as_str(), a.access_token().await?)),
-        _ => None,
-    };
-    let system = if mcp.is_some() {
-        c.hub.chat_system().await
-    } else {
-        "You are the assistant in Inbox Hub, running in demo mode with no mailbox connected. Say so briefly if asked about email.".into()
-    };
-    let reply = claude.chat(&system, &mut history, mcp).await?;
-    *c.convo.lock().await = history;
-    let mut tools: Vec<String> = Vec::new();
-    for t in reply.tools_used {
-        if !tools.contains(&t) {
-            tools.push(t);
-        }
+async fn ask_ai(c: &Ctx, q: String) -> Result<(String, String)> {
+    if c.hub.demo() {
+        return Err(anyhow::anyhow!("Ask isn't available with sample data. Switch to your real accounts to ask Superhuman AI."));
     }
-    Ok((reply.text, tools.join(", ")))
+    Ok((c.hub.ask_superhuman(&q).await?, "Superhuman AI".into()))
+}
+
+fn new_msg(role: &str, text: &str) -> crate::hub::ChatMsg {
+    crate::hub::ChatMsg {
+        id: format!("{:016x}", rand::random::<u64>()),
+        role: role.into(),
+        text: text.into(),
+        at: chrono::Utc::now().timestamp_millis(),
+        device: "desktop".into(),
+    }
 }
 
 // ----------------------------------------------------------------- views --
@@ -985,11 +1023,15 @@ fn do_reply(ctx: &Arc<Ctx>, app: &MainWindow, send: bool) {
         return toast(app, "Write something first");
     }
     let (account, id) = (app.get_thread_account().to_string(), app.get_thread_id().to_string());
+    let draft_id = ctx.st().sh_draft.clone().filter(|(t, _)| *t == id).map(|(_, d)| d);
     app.set_replying(true);
     let w = app.as_weak();
     let c = ctx.clone();
     ctx.spawn(async move {
-        let r = c.hub.send_reply(&account, &id, &text, send).await;
+        let r = c.hub.send_reply(&account, &id, &text, send, draft_id.as_deref()).await;
+        if send && r.is_ok() {
+            c.st().sh_draft = None;
+        }
         later(&w, move |app| {
             app.set_replying(false);
             match r {
@@ -1321,4 +1363,10 @@ fn sender_line(addr: &str) -> String {
     let name = crate::model::display_name(addr);
     let email = addr.rsplit('<').next().unwrap_or(addr).trim_end_matches('>').trim();
     if name.eq_ignore_ascii_case(email) { name } else { format!("{name}  ·  {email}") }
+}
+
+/// Ask and Draft use Superhuman AI (not available with sample data).
+fn refresh_ai_state(ctx: &Arc<Ctx>, app: &MainWindow) {
+    app.set_ai_enabled(!ctx.hub.demo());
+    app.set_model_name(ss(if ctx.hub.demo() { "" } else { "Synced with your phone" }));
 }

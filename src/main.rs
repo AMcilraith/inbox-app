@@ -3,7 +3,6 @@
 
 mod app;
 mod auth;
-mod claude;
 mod config;
 mod demo;
 mod hub;
@@ -18,14 +17,13 @@ use anyhow::Result;
 use chrono::{Duration, Utc};
 use std::{path::PathBuf, sync::Arc};
 
-const HELP: &str = "Inbox Hub — one desktop app for all your Superhuman accounts, with Claude built in.
+const HELP: &str = "Inbox Hub — one desktop app for all your Superhuman accounts, with Superhuman AI built in.
 
 USAGE:
   inbox-hub [--demo] [--config PATH]          open the app (default)
   inbox-hub digest [--send] [--config PATH]   print today's digest, or email it
 
-Sign in once in the app; `digest --send` then works from Task Scheduler.
-Set ANTHROPIC_API_KEY to turn on the Claude features.";
+Sign in once in the app; `digest --send` then works from Task Scheduler.";
 
 fn main() {
     if let Err(e) = real_main() {
@@ -87,12 +85,8 @@ fn real_main() -> Result<()> {
     let data = config::data_dir();
     let auth = (!demo).then(|| Arc::new(auth::Auth::new(http.clone(), &cfg.mcp_url, data.clone())));
     let mcp = auth.as_ref().map(|a| Arc::new(mcp::Mcp::new(http.clone(), &cfg.mcp_url, a.clone())));
-    let claude = match cfg.claude_key() {
-        Some(k) => Some(claude::Claude::new(k, cfg.claude.model.clone(), cfg.claude.effort.clone())?),
-        None => None,
-    };
     let port = cfg.port;
-    let hub = Arc::new(hub::Hub::new(cfg, mcp, claude));
+    let hub = Arc::new(hub::Hub::new(cfg, mcp));
 
     match command.as_str() {
         "digest" => rt.block_on(async {

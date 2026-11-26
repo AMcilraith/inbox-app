@@ -88,9 +88,6 @@ pub fn display_name(addr: &str) -> String {
     crate::names::display_name(addr)
 }
 
-pub fn first_name(addr: &str) -> String {
-    display_name(addr).split_whitespace().next().unwrap_or("there").to_string()
-}
 
 /// Parse one thread from Superhuman's `list_threads` / `get_thread` output.
 pub fn parse_thread(account: &str, v: &Value, me: &str, prefs: &AccountPrefs) -> Option<Thread> {
@@ -298,7 +295,6 @@ mod tests {
     fn names() {
         assert_eq!(display_name("jane.doe@x.com"), "Jane Doe");
         assert_eq!(display_name("\"Bob Ray\" <b@x.com>"), "Bob Ray");
-        assert_eq!(first_name("meadowoodpremierdentistry@gmail.com"), "Meadowood");
     }
 
     #[test]

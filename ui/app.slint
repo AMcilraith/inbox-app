@@ -810,7 +810,10 @@ export component MainWindow inherits Window {
     // status
     in property <bool> signed-in;
     in property <bool> demo;
-    in property <bool> claude-enabled;
+    // Ask / Draft use Superhuman's own AI (off with sample data).
+    in property <bool> ai-enabled;
+    callback chat-opened();
+    changed chat-open => { if (self.chat-open) { self.chat-opened(); } }
     in property <string> model-name;
     in property <string> signin-note;
     in property <bool> signing-in;
@@ -1189,7 +1192,7 @@ export component MainWindow inherits Window {
                             y: (parent.height - self.height) / 2;
                         }
                         Text {
-                            text: "Ask Claude";
+                            text: "Ask AI";
                             color: Theme.on-accent;
                             font-weight: 600;
                             vertical-alignment: center;
@@ -1543,7 +1546,7 @@ export component MainWindow inherits Window {
                                     }
                                 }
                                 LineEdit {
-                                    placeholder-text: "Optional: tell Claude what to say (e.g. confirm, ask to move it to Tuesday)";
+                                    placeholder-text: "Optional: tell Superhuman AI what to say (e.g. confirm, ask to move it to Tuesday)";
                                     text <=> root.guidance-text;
                                 }
                                 TextEdit {
@@ -1554,8 +1557,8 @@ export component MainWindow inherits Window {
                                 HorizontalLayout {
                                     spacing: 8px;
                                     Button {
-                                        text: root.drafting ? "Drafting…" : "✦ Draft with Claude";
-                                        enabled: root.claude-enabled && !root.drafting;
+                                        text: root.drafting ? "Drafting…" : "✦ Draft with Superhuman AI";
+                                        enabled: root.ai-enabled && !root.drafting;
                                         clicked => { root.draft-ai(); }
                                     }
                                     Rectangle { horizontal-stretch: 1; }
@@ -1876,7 +1879,7 @@ export component MainWindow inherits Window {
         }
     }
 
-    // ---------------------------------------------------------- Ask Claude drawer
+    // ---------------------------------------------------------- Ask AI drawer
     if root.chat-open && root.signed-in: Rectangle {
         x: parent.width - self.width;
         width: 420px;
@@ -1901,7 +1904,7 @@ export component MainWindow inherits Window {
                     y: (parent.height - self.height) / 2;
                 }
                 Text {
-                    text: "Ask Claude";
+                    text: "Ask Superhuman AI";
                     font-size: 15px;
                     font-weight: 700;
                     color: Theme.text;
@@ -1909,7 +1912,7 @@ export component MainWindow inherits Window {
                     horizontal-stretch: 1;
                 }
                 Text {
-                    text: root.claude-enabled ? root.model-name : "needs API key";
+                    text: root.model-name;
                     color: Theme.faint;
                     font-size: 12px;
                     vertical-alignment: center;
@@ -1940,13 +1943,8 @@ export component MainWindow inherits Window {
                     padding: 16px;
                     spacing: 10px;
                     alignment: start;
-                    if !root.claude-enabled: Text {
-                        text: "Set ANTHROPIC_API_KEY (or claude.api_key in inbox-hub.toml) and restart to use Claude.";
-                        color: Theme.high;
-                        wrap: word-wrap;
-                    }
                     Text {
-                        text: "Claude can search and read all your linked accounts and calendars. It can't send anything on its own.";
+                        text: root.ai-enabled ? "Superhuman AI searches all your linked accounts and calendars. This conversation is shared with the Inbox Hub phone app." : "Ask works with your real accounts.";
                         color: Theme.muted;
                         wrap: word-wrap;
                     }
@@ -1996,7 +1994,7 @@ export component MainWindow inherits Window {
                         }
                     }
                     if root.chat-busy: Text {
-                        text: "Claude is thinking…";
+                        text: "Superhuman AI is thinking…";
                         color: Theme.muted;
                     }
                 }
@@ -2008,7 +2006,7 @@ export component MainWindow inherits Window {
                 LineEdit {
                     placeholder-text: "Ask about your email or calendar…";
                     text <=> root.chat-input;
-                    enabled: root.claude-enabled;
+                    enabled: root.ai-enabled;
                     accepted(t) => {
                         if (t != "" && !root.chat-busy) {
                             root.ask(t);
@@ -2018,7 +2016,7 @@ export component MainWindow inherits Window {
                 Button {
                     text: "Send";
                     primary: true;
-                    enabled: root.claude-enabled && !root.chat-busy && root.chat-input != "";
+                    enabled: root.ai-enabled && !root.chat-busy && root.chat-input != "";
                     clicked => { root.ask(root.chat-input); }
                 }
             }

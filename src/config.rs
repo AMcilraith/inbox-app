@@ -29,7 +29,7 @@ pub struct AccountPrefs {
     /// Words in a subject/snippet that make an email urgent for this account.
     #[serde(default)]
     pub urgent_keywords: Vec<String>,
-    /// How replies from this account should sound. Used by Claude when drafting and
+    /// How replies from this account should sound. Sent to Superhuman's writer when drafting and
     /// pushed to Superhuman's own writer with "Sync style".
     #[serde(default)]
     pub style: Option<String>,
@@ -49,31 +49,6 @@ pub struct DigestCfg {
     /// "HH:MM" local time. While the app is running it sends the digest once a day at this time.
     #[serde(default)]
     pub send_time: Option<String>,
-}
-
-fn default_model() -> String {
-    "claude-opus-5-5".into()
-}
-fn default_effort() -> String {
-    "medium".into()
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct ClaudeCfg {
-    #[serde(default = "default_model")]
-    pub model: String,
-    /// low | medium | high | xhigh | max
-    #[serde(default = "default_effort")]
-    pub effort: String,
-    /// Optional; the ANTHROPIC_API_KEY environment variable takes precedence.
-    #[serde(default)]
-    pub api_key: Option<String>,
-}
-
-impl Default for ClaudeCfg {
-    fn default() -> Self {
-        Self { model: default_model(), effort: default_effort(), api_key: None }
-    }
 }
 
 fn default_theme() -> String {
@@ -157,8 +132,6 @@ pub struct Config {
     #[serde(default)]
     pub digest: DigestCfg,
     #[serde(default)]
-    pub claude: ClaudeCfg,
-    #[serde(default)]
     pub accounts: Vec<AccountPrefs>,
 }
 
@@ -200,9 +173,6 @@ impl Config {
             parse_hhmm(a)?;
             parse_hhmm(b)?;
         }
-        if !["low", "medium", "high", "xhigh", "max"].contains(&self.claude.effort.as_str()) {
-            bail!("claude.effort must be low, medium, high, xhigh or max");
-        }
         Ok(())
     }
 
@@ -218,12 +188,6 @@ impl Config {
             .unwrap_or_else(|| AccountPrefs { email: email.to_string(), ..Default::default() })
     }
 
-    pub fn claude_key(&self) -> Option<String> {
-        std::env::var("ANTHROPIC_API_KEY")
-            .ok()
-            .filter(|k| !k.trim().is_empty())
-            .or_else(|| self.claude.api_key.clone().filter(|k| !k.trim().is_empty()))
-    }
 
     /// Example config used by `--demo`.
     pub fn demo() -> Self {
