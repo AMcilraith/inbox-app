@@ -51,6 +51,31 @@ To update, unzip the new release over the old folder: `config\` and `data\` are 
 tokens stay in `data\` on your computer and are refreshed automatically. A sign-in from an
 older version that used `%APPDATA%\inbox-hub\` is copied over on first start.
 
+## Android app
+
+`InboxHub-…-android.apk` on the Releases page is the phone companion (Android 8.0+), built from
+`android/` (Kotlin, Jetpack Compose) on top of the same Superhuman MCP server.
+
+- **Install:** open the APK on your phone (send it to yourself, or download it from the release
+  page in the phone's browser) and allow *Install unknown apps* for that app when Android asks.
+  New versions install over old ones: every APK is signed with the same key.
+- **Sign in** with Superhuman once. Every linked account shows up.
+- **Inbox:** Important / Other / All, filter by account, pull to refresh. Swipe right for
+  **Done** (archive), swipe left to mark read/unread. Open a thread to read it, star it, mark it
+  done or reply from the right account (asks before sending).
+- **Calendar:** the next 7 days across all calendars, with clashes and RSVPs flagged. Tap an
+  event to answer Yes/Maybe/No or join the call.
+- **Notifications:** new unread mail in each account's Important inbox, grouped per account,
+  with **Done** and **Mark read** buttons. Android lets apps check at most every 15 minutes in
+  the background; *Settings → Check for new mail now* checks immediately.
+
+Build it yourself (JDK 17+, Android SDK 35):
+
+```bash
+cd android
+./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk
+```
+
 ## Daily digest
 
 - Set `send_time = "07:45"` under `[digest]`. While Inbox Hub is open it emails the digest once

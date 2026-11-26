@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Inbox Hub mark: two accounts and a spark flowing into one inbox tray (same as the desktop logo). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="1024" android:viewportHeight="1024">
+    <group android:scaleX="0.62" android:scaleY="0.62" android:pivotX="512" android:pivotY="512">
+        <path android:strokeColor="#BFFFFFFF" android:strokeWidth="56" android:strokeLineCap="round"
+            android:pathData="M300,330 C300,430 430,440 470,520" />
+        <path android:strokeColor="#BFFFFFFF" android:strokeWidth="56" android:strokeLineCap="round"
+            android:pathData="M724,330 C724,430 594,440 554,520" />
+        <path android:strokeColor="#FFFFFFFF" android:strokeWidth="56" android:strokeLineCap="round"
+            android:pathData="M512,344 L512,520" />
+        <path android:fillColor="#D9FFFFFF" android:pathData="M300,300 m-64,0 a64,64 0 1,0 128,0 a64,64 0 1,0 -128,0" />
+        <path android:fillColor="#D9FFFFFF" android:pathData="M724,300 m-64,0 a64,64 0 1,0 128,0 a64,64 0 1,0 -128,0" />
+        <path android:fillColor="#FFFFFFFF"
+            android:pathData="M512,150 C524,232 548,256 630,268 C548,280 524,304 512,386 C500,304 476,280 394,268 C476,256 500,232 512,150 Z" />
+        <path android:fillColor="#FFFFFFFF"
+            android:pathData="M212,560 L396,560 Q416,560 428,578 L460,626 Q472,644 492,644 L532,644 Q552,644 564,626 L596,578 Q608,560 628,560 L812,560 L812,748 Q812,836 724,836 L300,836 Q212,836 212,748 Z" />
+    </group>
+</vector>
