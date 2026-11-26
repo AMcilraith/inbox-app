@@ -1516,17 +1516,17 @@ export component MainWindow inherits Window {
                                     clicked => { root.thread-action(root.thread-starred ? "unstar" : "star"); }
                                 }
                                 Button {
-                                    text: "Mark unread";
+                                    text: "Unread";
                                     enabled: !root.demo;
                                     clicked => { root.thread-action("unread"); }
                                 }
                                 Button {
-                                    text: root.thread-important ? "Move to Other" : "Move to Important";
+                                    text: root.thread-important ? "→ Other" : "→ Important";
                                     enabled: !root.demo;
                                     clicked => { root.thread-action(root.thread-important ? "other" : "important"); }
                                 }
                                 remind-btn := Button {
-                                    text: "⏰ Remind me ▾";
+                                    text: "⏰ Remind ▾";
                                     enabled: !root.demo;
                                     clicked => { remind-menu.show(); }
                                 }
