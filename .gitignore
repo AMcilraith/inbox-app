@@ -13,3 +13,4 @@ inbox-hub-source.zip
 /android/app/build
 /android/.gradle
 /android/local.properties
+/android/.kotlin
