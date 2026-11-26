@@ -240,27 +240,90 @@ pub fn parse_hhmm(s: &str) -> Result<(u32, u32)> {
     Ok((h, m))
 }
 
+/// Folder that holds InboxHub.exe.
+pub fn exe_dir() -> Option<PathBuf> {
+    std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf))
+}
+
+/// Portable layout: `InboxHub.exe` next to a `config/` folder. Settings live in `config/`,
+/// sign-in tokens and logs in `data/`, so the whole folder can be moved or backed up.
+pub fn portable_root() -> Option<PathBuf> {
+    let d = exe_dir()?;
+    d.join("config").is_dir().then_some(d)
+}
+
+static ACTIVE_CONFIG: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// The settings file the app loaded (or created), for the "Open settings file" button.
+pub fn active_config() -> Option<PathBuf> {
+    ACTIVE_CONFIG.get().cloned()
+}
+
+pub fn set_active_config(p: &Path) {
+    let _ = ACTIVE_CONFIG.set(p.to_path_buf());
+}
+
 pub fn find_config(explicit: Option<PathBuf>) -> Option<PathBuf> {
     if let Some(p) = explicit {
         return Some(p);
     }
-    let local = PathBuf::from("inbox-hub.toml");
-    if local.exists() {
-        return Some(local);
+    let mut candidates = Vec::new();
+    if let Some(root) = portable_root() {
+        candidates.push(root.join("config").join("inbox-hub.toml"));
     }
-    // Next to the .exe, so double-clicking it or a shortcut finds the config.
-    if let Some(p) = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join("inbox-hub.toml"))) {
-        if p.exists() {
-            return Some(p);
-        }
+    candidates.push(PathBuf::from("inbox-hub.toml"));
+    if let Some(d) = exe_dir() {
+        candidates.push(d.join("inbox-hub.toml"));
     }
-    let dirs = directories::ProjectDirs::from("", "", "inbox-hub")?;
-    let p = dirs.config_dir().join("inbox-hub.toml");
-    p.exists().then_some(p)
+    if let Some(dirs) = directories::ProjectDirs::from("", "", "inbox-hub") {
+        candidates.push(dirs.config_dir().join("inbox-hub.toml"));
+    }
+    candidates.into_iter().find(|p| p.exists())
 }
 
-pub fn data_dir() -> PathBuf {
+const STARTER: &str = include_str!("../assets/starter-config.toml");
+
+/// First run with no settings anywhere: write a starter `config/inbox-hub.toml` next to the
+/// .exe (falling back to the user's config folder if that one isn't writable).
+pub fn create_starter_config() -> Option<PathBuf> {
+    let mut dirs = Vec::new();
+    if let Some(d) = exe_dir() {
+        dirs.push(d.join("config"));
+    }
+    if let Some(p) = directories::ProjectDirs::from("", "", "inbox-hub") {
+        dirs.push(p.config_dir().to_path_buf());
+    }
+    for dir in dirs {
+        let path = dir.join("inbox-hub.toml");
+        if std::fs::create_dir_all(&dir).is_ok() && std::fs::write(&path, STARTER).is_ok() {
+            return Some(path);
+        }
+    }
+    None
+}
+
+fn legacy_data_dir() -> PathBuf {
     directories::ProjectDirs::from("", "", "inbox-hub")
         .map(|d| d.data_dir().to_path_buf())
         .unwrap_or_else(|| PathBuf::from(".inbox-hub"))
+}
+
+pub fn data_dir() -> PathBuf {
+    let Some(root) = portable_root() else { return legacy_data_dir() };
+    let dir = root.join("data");
+    if !dir.exists() && std::fs::create_dir_all(&dir).is_ok() {
+        // Carry over a sign-in from an older install that kept data in %APPDATA%.
+        if let Ok(entries) = std::fs::read_dir(legacy_data_dir()) {
+            for e in entries.flatten() {
+                if e.path().is_file() {
+                    let _ = std::fs::copy(e.path(), dir.join(e.file_name()));
+                }
+            }
+        }
+    }
+    if std::fs::create_dir_all(&dir).is_ok() {
+        dir
+    } else {
+        legacy_data_dir()
+    }
 }

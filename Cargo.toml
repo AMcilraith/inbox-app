@@ -5,6 +5,11 @@ edition = "2021"
 description = "One desktop app for all your email accounts, calendars and daily digests, with Claude built in"
 build = "build.rs"
 
+# One double-clickable program: InboxHub.exe
+[[bin]]
+name = "InboxHub"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
@@ -30,6 +35,8 @@ windows-sys = { version = "0.59", features = ["Win32_System_Console"] }
 
 [build-dependencies]
 slint-build = "1.8"
+# Embeds assets/icon.ico into InboxHub.exe (only used when building for Windows).
+winresource = "0.1"
 
 [profile.release]
 strip = true

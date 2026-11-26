@@ -67,7 +67,11 @@ fn real_main() -> Result<()> {
     let (cfg, cfg_error) = if demo {
         (config::Config::demo(), None)
     } else {
-        match config::find_config(cfg_path) {
+        let found = config::find_config(cfg_path).or_else(|| if cli { None } else { config::create_starter_config() });
+        if let Some(p) = &found {
+            config::set_active_config(p);
+        }
+        match found {
             Some(p) => match config::Config::load(&p) {
                 Ok(c) => (c, None),
                 Err(e) if cli => return Err(e),

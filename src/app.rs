@@ -280,6 +280,31 @@ fn wire(app: &MainWindow, ctx: &Arc<Ctx>, pending: &Pending, chat: &Rc<VecModel<
         let _ = std::fs::write(ctx.data.join("theme"), t.as_str());
     });
 
+    // Switch between sample data and real accounts by restarting the app (replaces the old .bat files).
+    on!(on_switch_demo, |app, _ctx, to_demo: bool| {
+        let Ok(exe) = std::env::current_exe() else { return };
+        let mut cmd = std::process::Command::new(exe);
+        if to_demo {
+            cmd.arg("--demo");
+        }
+        match cmd.spawn() {
+            Ok(_) => {
+                let _ = slint::quit_event_loop();
+            }
+            Err(e) => toast(&app, format!("Couldn't restart Inbox Hub: {e}")),
+        }
+    });
+    on!(on_open_config, |app, _ctx| {
+        match crate::config::active_config() {
+            Some(p) => {
+                if let Err(e) = open::that(&p) {
+                    toast(&app, format!("Couldn't open {}: {e}", p.display()));
+                }
+            }
+            None => toast(&app, "No settings file yet. It is created the first time you start Inbox Hub normally."),
+        }
+    });
+
     // sign in / out
     on!(on_sign_in, |app, ctx| {
         let Some(auth) = ctx.auth.clone() else { return };

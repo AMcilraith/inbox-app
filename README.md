@@ -19,20 +19,37 @@ One desktop app for all your email accounts and calendars, built in Rust with a 
 - **Per-account personalisation**: label, colour, VIP senders, urgent words, categories and
   reply style. *Sync style* pushes the style into Superhuman's own AI writer too.
 
-## Using it (Windows)
+## Download & run (Windows)
 
-1. Put `inbox-hub.exe` and `inbox-hub.toml` in the same folder (e.g. `D:\inbox-hub`).
-2. Double-click `inbox-hub.exe`. `Try-Demo.bat` opens it with sample data instead.
+1. Open the repository's **Releases** page and download the newest
+   `InboxHub-…-windows-x64.zip`. A new release is built automatically for every change.
+2. Unzip it anywhere, e.g. `D:\InboxHub`, and double-click **`InboxHub.exe`**. It's a normal
+   desktop app: no console window and no browser tab.
+
+```
+InboxHub/
+  InboxHub.exe                 the app
+  config/
+    inbox-hub.toml             your settings (created on first run, kept across updates)
+    inbox-hub.example.toml     every option, with examples
+  data/                        sign-in tokens, digest marker, error log
+  README.md
+```
+
 3. Click **Sign in with Superhuman**. Superhuman's sign-in page opens in your browser once;
-   after you approve, the app window updates by itself. Everything else happens in the app.
+   after you approve, the app window updates by itself. **Try with sample data** opens a demo
+   instead, and **Use my real accounts** in the demo banner switches back.
 4. To add more accounts: **Accounts & style → Link another Superhuman account**, approve in the
    browser, then press Refresh.
+5. **Accounts & style → Open settings file** opens `config\inbox-hub.toml`. Save it and
+   restart the app to apply changes.
 
 To turn on the Claude features, set `ANTHROPIC_API_KEY` (System Properties → Environment
-Variables) or `claude.api_key` in `inbox-hub.toml`, then restart the app.
+Variables) or `claude.api_key` in `config\inbox-hub.toml`, then restart the app.
 
-Sign-in tokens are stored only on your computer (`%APPDATA%\inbox-hub\`) and are refreshed
-automatically. Signing in from an older version of Inbox Hub carries over.
+To update, unzip the new release over the old folder: `config\` and `data\` are kept. Sign-in
+tokens stay in `data\` on your computer and are refreshed automatically. A sign-in from an
+older version that used `%APPDATA%\inbox-hub\` is copied over on first start.
 
 ## Daily digest
 
@@ -41,17 +58,18 @@ automatically. Signing in from an older version of Inbox Hub carries over.
 - Or schedule it with Windows, with the app closed:
 
   ```powershell
-  schtasks /Create /SC DAILY /ST 07:45 /TN "Inbox Hub digest" /TR "D:\inbox-hub\inbox-hub.exe digest --send --config D:\inbox-hub\inbox-hub.toml"
+  schtasks /Create /SC DAILY /ST 07:45 /TN "Inbox Hub digest" /TR "D:\InboxHub\InboxHub.exe digest --send"
   ```
 
-- `inbox-hub digest` (without `--send`) prints the digest without sending it.
+- `InboxHub.exe digest` (without `--send`) prints the digest without sending it.
 
 Without a Claude key the digest uses a built-in template. With a key, Claude writes it.
 
-## Configuration (`inbox-hub.toml`)
+## Configuration (`config\inbox-hub.toml`)
 
-The app looks for `inbox-hub.toml` in the current folder, then next to `inbox-hub.exe`, then in
-`%APPDATA%\inbox-hub\config\`.
+The app looks for its settings in `config\inbox-hub.toml` next to `InboxHub.exe`, then
+`inbox-hub.toml` in the current folder or next to the exe (older layout), then
+`%APPDATA%\inbox-hub\config\`. If none exists, it creates `config\inbox-hub.toml`.
 
 | Key | Meaning |
 |---|---|
@@ -84,14 +102,18 @@ Inbox Hub window (Slint, native)
 
 ## Development
 
+Every push to `main` runs `.github/workflows/release.yml` on Windows: tests, release build,
+the folder above zipped, and a new GitHub release. Tag `v1.2.3` for a versioned release.
+
+
 Needs Rust (stable). On Windows the GNU toolchain works without Visual Studio:
 
 ```powershell
 rustup default stable-x86_64-pc-windows-gnu
 cargo run -- --demo                  # debug build with sample data (keeps a console for logs)
 cargo test
-.\scripts\release.ps1                # release build + icon, packaged in dist\InboxHub
-.\scripts\release.ps1 -InstallTo D:\inbox-hub
+.\scripts\release.ps1                # release build, packaged in dist\InboxHub (same layout as a release)
+.\scripts\release.ps1 -InstallTo D:\InboxHub
 ```
 
 | Path | What |

@@ -1,0 +1,33 @@
+# Inbox Hub settings. Edit, save, then restart Inbox Hub.
+# A full list of options with examples is in inbox-hub.example.toml next to this file.
+
+timezone = "local"                 # or an IANA name such as "America/Winnipeg"
+theme = "light"                    # system | light | dark
+digest_subject = "Daily Digest"
+
+[digest]
+# to = "you@example.com"           # default: your primary Superhuman account
+# from_account = "you@example.com"
+# send_time = "08:00"              # email the digest every morning while Inbox Hub is open
+
+[calendar]
+default_view = "week"              # day | week | month | agenda
+week_starts_on = "sunday"          # sunday | monday
+day_start_hour = 7
+day_end_hour = 21
+default_duration_minutes = 30
+working_hours = "09:00-17:00"
+add_video_link = false
+
+[claude]
+model = "claude-opus-5-5"
+effort = "medium"
+# api_key = "sk-ant-..."           # or set the ANTHROPIC_API_KEY environment variable
+
+# Personalise each Superhuman account (match by email):
+# [[accounts]]
+# email = "you@example.com"
+# label = "Personal"
+# color = "#5c5c64"
+# urgent_keywords = ["urgent", "asap", "today"]
+# style = "Friendly and clear. Greet by first name. Sign off 'Thanks,'."

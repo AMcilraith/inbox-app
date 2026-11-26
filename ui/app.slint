@@ -899,6 +899,8 @@ export component MainWindow inherits Window {
     callback refresh();
     callback sign-in();
     callback sign-out();
+    callback switch-demo(bool);
+    callback open-config();
     callback set-theme(string);
     callback select-account(string);
     callback select-category(string);
@@ -976,11 +978,16 @@ export component MainWindow inherits Window {
                 }
                 HorizontalLayout {
                     alignment: center;
+                    spacing: 10px;
                     Button {
                         text: root.signing-in ? "Waiting for the browser…" : "Sign in with Superhuman";
                         primary: true;
                         enabled: !root.signing-in;
                         clicked => { root.sign-in(); }
+                    }
+                    Button {
+                        text: "Try with sample data";
+                        clicked => { root.switch-demo(true); }
                     }
                 }
                 Text {
@@ -1178,15 +1185,23 @@ export component MainWindow inherits Window {
         VerticalLayout {
             horizontal-stretch: 1;
             if root.demo: Rectangle {
-                height: 30px;
+                height: 40px;
                 background: Theme.accent-soft;
-                Text {
-                    width: parent.width;
-                    height: parent.height;
-                    text: "Demo mode — sample data for four accounts. Start without --demo to connect Superhuman.";
-                    color: Theme.accent;
-                    horizontal-alignment: center;
-                    vertical-alignment: center;
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 12px;
+                    padding-top: 4px;
+                    padding-bottom: 4px;
+                    Text {
+                        text: "Sample data — four example accounts.";
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                    Button {
+                        text: "Use my real accounts";
+                        primary: true;
+                        clicked => { root.switch-demo(false); }
+                    }
                 }
             }
             if root.banner-error != "": Rectangle {
@@ -1818,10 +1833,19 @@ export component MainWindow inherits Window {
                             }
                         }
                     }
-                    Text {
-                        text: "Labels, colours, VIP senders, urgent words, categories and reply style live in inbox-hub.toml. “Sync style” teaches Superhuman's own writer the same voice.";
-                        color: Theme.faint;
-                        wrap: word-wrap;
+                    HorizontalLayout {
+                        spacing: 12px;
+                        Button {
+                            text: "Open settings file";
+                            clicked => { root.open-config(); }
+                        }
+                        Text {
+                            text: "Labels, colours, VIP senders, urgent words, categories and reply style live in config\\inbox-hub.toml. Save it and restart Inbox Hub to apply. “Sync style” teaches Superhuman's own writer the same voice.";
+                            color: Theme.faint;
+                            wrap: word-wrap;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
                     }
                 }
             }
