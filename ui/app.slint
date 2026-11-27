@@ -531,7 +531,8 @@ component NavButton inherits Rectangle {
     callback clicked;
     height: 40px;
     border-radius: 10px;
-    background: on ? Theme.accent : ta.has-hover ? Theme.panel-2 : transparent;
+    // The selected background is the sidebar's sliding indicator, drawn behind the buttons.
+    background: !on && ta.has-hover ? Theme.panel-2 : transparent;
     animate background { duration: 120ms; }
     ta := TouchArea {
         mouse-cursor: pointer;
@@ -544,6 +545,7 @@ component NavButton inherits Rectangle {
         Image {
             source: root.icon;
             colorize: on ? Theme.on-accent : Theme.muted;
+            animate colorize { duration: 180ms; }
             width: 18px;
             height: 18px;
             y: (parent.height - self.height) / 2;
@@ -551,13 +553,14 @@ component NavButton inherits Rectangle {
         Text {
             text: root.text;
             color: on ? Theme.on-accent : Theme.muted;
+            animate color { duration: 180ms; }
             font-weight: on ? 600 : 450;
             vertical-alignment: center;
             horizontal-stretch: 1;
         }
         if count != "": Text {
             text: root.count;
-            color: Theme.faint;
+            color: on ? Theme.on-accent : Theme.faint;
             font-size: 12px;
             vertical-alignment: center;
         }
@@ -1427,36 +1430,51 @@ export component MainWindow inherits Window {
                         vertical-alignment: center;
                     }
                 }
-                NavButton {
-                    text: "Overview";
-                    icon: @image-url("../assets/icons/overview.svg");
-                    on: root.view == "overview";
-                    clicked => { root.view = "overview"; root.navigate("overview"); }
-                }
-                NavButton {
-                    text: "Inbox";
-                    icon: @image-url("../assets/icons/inbox.svg");
-                    on: root.view == "inbox";
-                    count: root.total-unread > 0 ? "\{root.total-unread}" : "";
-                    clicked => { root.view = "inbox"; root.navigate("inbox"); }
-                }
-                NavButton {
-                    text: "Calendar";
-                    icon: @image-url("../assets/icons/calendar.svg");
-                    on: root.view == "calendar";
-                    clicked => { root.view = "calendar"; root.navigate("calendar"); }
-                }
-                NavButton {
-                    text: "Daily digest";
-                    icon: @image-url("../assets/icons/digest.svg");
-                    on: root.view == "digest";
-                    clicked => { root.view = "digest"; root.navigate("digest"); }
-                }
-                NavButton {
-                    text: "Accounts & style";
-                    icon: @image-url("../assets/icons/accounts.svg");
-                    on: root.view == "accounts";
-                    clicked => { root.view = "accounts"; root.navigate("accounts"); }
+                // Nav items over one highlight that glides to the selected item.
+                Rectangle {
+                    property <int> sel: root.view == "overview" ? 0 : root.view == "inbox" ? 1 : root.view == "calendar" ? 2 : root.view == "digest" ? 3 : 4;
+                    height: nav.preferred-height;
+                    Rectangle {
+                        y: parent.sel * 46px;
+                        height: 40px;
+                        border-radius: 10px;
+                        background: Theme.accent;
+                        animate y { duration: 260ms; easing: cubic-bezier(0.2, 0.9, 0.25, 1); }
+                    }
+                    nav := VerticalLayout {
+                        spacing: 6px;
+                    NavButton {
+                        text: "Overview";
+                        icon: @image-url("../assets/icons/overview.svg");
+                        on: root.view == "overview";
+                        clicked => { root.view = "overview"; root.navigate("overview"); }
+                    }
+                    NavButton {
+                        text: "Inbox";
+                        icon: @image-url("../assets/icons/inbox.svg");
+                        on: root.view == "inbox";
+                        count: root.total-unread > 0 ? "\{root.total-unread}" : "";
+                        clicked => { root.view = "inbox"; root.navigate("inbox"); }
+                    }
+                    NavButton {
+                        text: "Calendar";
+                        icon: @image-url("../assets/icons/calendar.svg");
+                        on: root.view == "calendar";
+                        clicked => { root.view = "calendar"; root.navigate("calendar"); }
+                    }
+                    NavButton {
+                        text: "Daily digest";
+                        icon: @image-url("../assets/icons/digest.svg");
+                        on: root.view == "digest";
+                        clicked => { root.view = "digest"; root.navigate("digest"); }
+                    }
+                    NavButton {
+                        text: "Accounts & style";
+                        icon: @image-url("../assets/icons/accounts.svg");
+                        on: root.view == "accounts";
+                        clicked => { root.view = "accounts"; root.navigate("accounts"); }
+                    }
+                    }
                 }
                 Text {
                     text: "ACCOUNTS";
@@ -1532,12 +1550,22 @@ export component MainWindow inherits Window {
                         mouse-cursor: pointer;
                         clicked => { root.view = "accounts"; root.navigate("accounts"); root.link-account(); }
                     }
-                    Text {
-                        x: 12px;
-                        height: parent.height;
-                        text: "+  Add email account";
-                        color: Theme.muted;
-                        vertical-alignment: center;
+                    HorizontalLayout {
+                        padding-left: 10px;
+                        spacing: 10px;
+                        Image {
+                            source: @image-url("../assets/icons/plus.svg");
+                            colorize: Theme.muted;
+                            width: 14px;
+                            height: 14px;
+                            y: (parent.height - self.height) / 2;
+                        }
+                        Text {
+                            text: "Add email account";
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
                     }
                 }
                 Rectangle { vertical-stretch: 1; }
@@ -1684,19 +1712,52 @@ export component MainWindow inherits Window {
                 HorizontalLayout {
                     spacing: 24px;
                     height: 132px;
-                    for t in root.tiles: Card {
+                    for t[i] in root.tiles: tile := Card {
                         horizontal-stretch: 1;
+                        // Tiles rise into place when the Overview opens.
+                        in-out property <bool> shown: false;
+                        init => { self.shown = true; }
+                        opacity: shown ? 1 : 0;
+                        animate opacity { duration: 320ms; easing: ease-out; }
+                        border-color: tile-ta.has-hover ? Theme.faint : Theme.line;
+                        animate border-color { duration: 140ms; }
+                        tile-ta := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                if (i == 2 || i == 3) { root.view = "calendar"; root.navigate("calendar"); }
+                                else { root.view = "inbox"; root.navigate("inbox"); }
+                            }
+                        }
                         VerticalLayout {
+                            y: tile.shown ? 0px : 10px;
+                            animate y { duration: 360ms; easing: cubic-bezier(0.2, 0.9, 0.25, 1); }
                             padding-left: 24px;
                             padding-right: 20px;
                             padding-top: 20px;
                             padding-bottom: 20px;
                             spacing: 6px;
-                            Text {
-                                text: t.k;
-                                color: Theme.muted;
-                                font-size: 13px;
-                                font-weight: 600;
+                            HorizontalLayout {
+                                spacing: 8px;
+                                Text {
+                                    text: t.k;
+                                    color: Theme.muted;
+                                    font-size: 13px;
+                                    font-weight: 600;
+                                    vertical-alignment: center;
+                                    horizontal-stretch: 1;
+                                }
+                                Rectangle {
+                                    width: 28px;
+                                    height: 28px;
+                                    border-radius: 14px;
+                                    background: i == 1 || i == 3 ? (t.v != "0" ? (i == 1 ? Theme.high-soft : Theme.med-soft) : Theme.panel-2) : Theme.panel-2;
+                                    Image {
+                                        source: i == 0 ? @image-url("../assets/icons/mail.svg") : i == 1 ? @image-url("../assets/icons/reply.svg") : i == 2 ? @image-url("../assets/icons/calendar.svg") : @image-url("../assets/icons/warning.svg");
+                                        colorize: i == 1 && t.v != "0" ? Theme.high : i == 3 && t.v != "0" ? Theme.med : Theme.muted;
+                                        width: 14px;
+                                        height: 14px;
+                                    }
+                                }
                             }
                             Text {
                                 text: t.v;
@@ -2062,19 +2123,25 @@ export component MainWindow inherits Window {
             }
 
             // ------------------------------------------------ accounts
-            if root.view == "accounts": ScrollView {
+            if root.view == "accounts": acc-page := ScrollView {
                 vertical-stretch: 1;
+                in-out property <bool> shown: false;
+                init => { self.shown = true; }
+                opacity: shown ? 1 : 0;
+                animate opacity { duration: 260ms; easing: ease-out; }
                 VerticalLayout {
-                    padding-left: 24px;
-                    padding-right: 24px;
-                    padding-bottom: 24px;
+                    padding-left: 36px;
+                    padding-right: 36px;
+                    padding-top: 4px;
+                    padding-bottom: 36px;
                     spacing: 14px;
                     alignment: start;
                     HorizontalLayout {
                         spacing: 10px;
                         alignment: start;
                         Button {
-                            text: "+ Link another Superhuman account";
+                            text: "Link another Superhuman account";
+                            icon: @image-url("../assets/icons/plus.svg");
                             primary: true;
                             enabled: !root.demo;
                             clicked => { root.link-account(); }
@@ -2083,6 +2150,11 @@ export component MainWindow inherits Window {
                             text: "Open the link again";
                             clicked => { root.open-link(root.link-url); }
                         }
+                        Button {
+                            text: "Open settings file";
+                            clicked => { root.open-config(); }
+                        }
+                        Rectangle { horizontal-stretch: 1; }
                         Button {
                             text: "Sign out";
                             enabled: !root.demo;
@@ -2096,71 +2168,124 @@ export component MainWindow inherits Window {
                     }
                     for a in root.accounts: Card {
                         VerticalLayout {
-                            padding: 16px;
-                            spacing: 8px;
+                            padding: 18px;
+                            spacing: 14px;
                             HorizontalLayout {
-                                spacing: 10px;
+                                spacing: 14px;
+                                // The account's colour, as on the phone app.
+                                Rectangle {
+                                    width: 40px;
+                                    height: 40px;
+                                    y: (parent.height - self.height) / 2;
+                                    border-radius: 20px;
+                                    background: a.color;
+                                    Image {
+                                        source: @image-url("../assets/icons/mail.svg");
+                                        colorize: #ffffff;
+                                        width: 18px;
+                                        height: 18px;
+                                    }
+                                }
                                 VerticalLayout {
                                     alignment: center;
-                                    Dot { c: a.color; size: 12px; }
-                                }
-                                Text {
-                                    text: a.label;
-                                    color: Theme.text;
-                                    font-weight: 700;
-                                    font-size: 14px;
-                                }
-                                if a.primary: VerticalLayout {
-                                    alignment: center;
-                                    Pill { text: "primary"; kind: "accent"; }
-                                }
-                                Text {
-                                    text: a.email;
-                                    color: Theme.muted;
-                                    vertical-alignment: center;
+                                    spacing: 2px;
                                     horizontal-stretch: 1;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        alignment: start;
+                                        Text {
+                                            text: a.label;
+                                            color: Theme.text;
+                                            font-weight: 700;
+                                            font-size: 15px;
+                                            vertical-alignment: center;
+                                        }
+                                        if a.primary: VerticalLayout {
+                                            alignment: center;
+                                            Pill { text: "Primary"; kind: "accent"; }
+                                        }
+                                        if a.unread > 0: VerticalLayout {
+                                            alignment: center;
+                                            Pill { text: a.unread + " unread"; }
+                                        }
+                                    }
+                                    Text {
+                                        text: a.email;
+                                        color: Theme.muted;
+                                        font-size: 13px;
+                                        overflow: elide;
+                                    }
                                 }
-                                Button {
-                                    text: "Sync style to Superhuman";
-                                    enabled: a.style != "" && !root.demo;
-                                    clicked => { root.sync-style(a.email); }
-                                }
-                                if !a.primary: Button {
-                                    text: "Make primary";
-                                    enabled: !root.demo;
-                                    clicked => { root.make-primary(a.email); }
-                                }
-                                if !a.primary: Button {
-                                    text: "Unlink";
-                                    enabled: !root.demo;
-                                    clicked => { root.remove-account(a.email); }
+                                VerticalLayout {
+                                    alignment: center;
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        Button {
+                                            text: "Sync style";
+                                            icon: @image-url("../assets/icons/spark.svg");
+                                            enabled: a.style != "" && !root.demo;
+                                            clicked => { root.sync-style(a.email); }
+                                        }
+                                        if !a.primary: Button {
+                                            text: "Make primary";
+                                            enabled: !root.demo;
+                                            clicked => { root.make-primary(a.email); }
+                                        }
+                                        if !a.primary: Button {
+                                            text: "Unlink";
+                                            enabled: !root.demo;
+                                            clicked => { root.remove-account(a.email); }
+                                        }
+                                    }
                                 }
                             }
-                            if a.error != "": Text {
-                                text: a.error;
-                                color: Theme.high;
-                                wrap: word-wrap;
+                            if a.error != "": Rectangle {
+                                background: Theme.high-soft;
+                                border-radius: 8px;
+                                HorizontalLayout {
+                                    padding: 10px;
+                                    spacing: 8px;
+                                    Image {
+                                        source: @image-url("../assets/icons/warning.svg");
+                                        colorize: Theme.high;
+                                        width: 14px;
+                                        height: 14px;
+                                        y: (parent.height - self.height) / 2;
+                                    }
+                                    Text {
+                                        text: a.error;
+                                        color: Theme.high;
+                                        wrap: word-wrap;
+                                        horizontal-stretch: 1;
+                                    }
+                                }
                             }
-                            Text {
-                                text: a.style != "" ? "Reply style: " + a.style : "No reply style set — add one under this account in inbox-hub.toml.";
-                                color: Theme.muted;
-                                wrap: word-wrap;
+                            Rectangle {
+                                background: Theme.panel-2;
+                                border-radius: 10px;
+                                VerticalLayout {
+                                    padding: 12px;
+                                    spacing: 4px;
+                                    Text {
+                                        text: "REPLY STYLE";
+                                        color: Theme.faint;
+                                        font-size: 11px;
+                                        font-weight: 600;
+                                        letter-spacing: 0.6px;
+                                    }
+                                    Text {
+                                        text: a.style != "" ? a.style : "None yet. Add one under this account in inbox-hub.toml.";
+                                        color: a.style != "" ? Theme.text : Theme.muted;
+                                        wrap: word-wrap;
+                                    }
+                                }
                             }
                         }
                     }
-                    HorizontalLayout {
-                        spacing: 12px;
-                        Button {
-                            text: "Open settings file";
-                            clicked => { root.open-config(); }
-                        }
-                        Text {
-                            text: "Labels, colours, VIP senders, urgent words, categories and reply style live in config\\inbox-hub.toml. Save it and restart Inbox Hub to apply. “Sync style” teaches Superhuman's own writer the same voice.";
-                            color: Theme.faint;
-                            wrap: word-wrap;
-                            vertical-alignment: center;
-                            horizontal-stretch: 1;
-                        }
+                    Text {
+                        text: "Labels, colours, VIP senders, urgent words, categories and reply style live in config\\inbox-hub.toml. Save it and restart Inbox Hub to apply. “Sync style” teaches Superhuman's own writer the same voice.";
+                        color: Theme.faint;
+                        wrap: word-wrap;
                     }
                 }
             }
