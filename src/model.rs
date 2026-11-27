@@ -69,7 +69,7 @@ pub fn is_low_priority(category: &str) -> bool {
 }
 
 fn s(v: &Value, k: &str) -> String {
-    v.get(k).and_then(Value::as_str).unwrap_or_default().to_string()
+    crate::text::clean(v.get(k).and_then(Value::as_str).unwrap_or_default())
 }
 
 fn strs(v: &Value, k: &str) -> Vec<String> {
@@ -252,13 +252,75 @@ pub fn strip_tags(s: &str) -> String {
     decode_entities(&out).split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Decode the HTML entities that show up in snippets and plain-text bodies:
+/// the named ones mail clients actually use, plus every numeric form (&#8217; &#x2019;).
 pub fn decode_entities(s: &str) -> String {
-    s.replace("&#39;", "'")
-        .replace("&quot;", "\"")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&nbsp;", " ")
-        .replace("&amp;", "&")
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.find('&') {
+        out.push_str(&rest[..i]);
+        rest = &rest[i..];
+        let end = rest[1..].find(|c: char| c == ';' || c == '&' || c.is_whitespace()).map(|j| j + 1);
+        let decoded = match end {
+            Some(j) if rest.as_bytes()[j] == b';' && j <= 12 => entity(&rest[1..j]).map(|c| (c, j + 1)),
+            _ => None,
+        };
+        match decoded {
+            Some((c, n)) => {
+                out.push_str(&c);
+                rest = &rest[n..];
+            }
+            None => {
+                out.push('&');
+                rest = &rest[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn entity(name: &str) -> Option<String> {
+    if let Some(num) = name.strip_prefix('#') {
+        let n = match num.strip_prefix('x').or_else(|| num.strip_prefix('X')) {
+            Some(hex) => u32::from_str_radix(hex, 16).ok()?,
+            None => num.parse().ok()?,
+        };
+        return char::from_u32(n).map(|c| c.to_string());
+    }
+    let c = match name {
+        "amp" => "&",
+        "lt" => "<",
+        "gt" => ">",
+        "quot" => "\"",
+        "apos" => "'",
+        "nbsp" | "ensp" | "emsp" | "thinsp" => " ",
+        "zwnj" | "zwj" | "shy" | "lrm" | "rlm" => "",
+        "rsquo" | "lsquo" | "sbquo" => "'",
+        "rdquo" | "ldquo" | "bdquo" => "\"",
+        "ndash" => "\u{2013}",
+        "mdash" => "\u{2014}",
+        "hellip" => "\u{2026}",
+        "bull" | "middot" => "\u{00B7}",
+        "copy" => "\u{00A9}",
+        "reg" => "\u{00AE}",
+        "trade" => "\u{2122}",
+        "deg" => "\u{00B0}",
+        "euro" => "\u{20AC}",
+        "pound" => "\u{00A3}",
+        "yen" => "\u{00A5}",
+        "cent" => "\u{00A2}",
+        "times" => "\u{00D7}",
+        "laquo" => "\u{00AB}",
+        "raquo" => "\u{00BB}",
+        "rarr" => "\u{2192}",
+        "larr" => "\u{2190}",
+        _ => return None,
+    };
+    Some(c.to_string())
 }
 
 pub fn html_escape(s: &str) -> String {

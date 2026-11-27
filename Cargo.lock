@@ -2468,7 +2468,7 @@ checksum = "6e44b0a4eaa4c82f441d50a963f2d5f05a787240aeee097597033e72accfd22f"
 
 [[package]]
 name = "inbox-hub"
-version = "0.4.2"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

@@ -141,34 +141,56 @@ export global Theme {
 
 component Button inherits Rectangle {
     in property <string> text;
+    in property <image> icon;
+    // a small down-chevron after the label, for buttons that open a menu
+    in property <bool> menu;
     in property <bool> primary;
     in property <bool> enabled: true;
     callback clicked;
+    property <color> fg: root.primary ? Theme.on-accent : Theme.text;
     min-height: 34px;
     preferred-height: 34px;
-    min-width: label.preferred-width + 28px;
+    min-width: hl.preferred-width;
     horizontal-stretch: 0;
     border-radius: 8px;
     border-width: primary ? 0px : 1px;
     border-color: Theme.line;
     opacity: enabled ? 1 : 0.45;
-    background: primary ? (ta.has-hover && enabled ? Theme.accent-hover : Theme.accent)
-        : (ta.has-hover && enabled ? Theme.panel-2 : Theme.panel);
-    animate background { duration: 120ms; }
+    background: primary ? (ta.pressed && enabled ? Theme.accent : ta.has-hover && enabled ? Theme.accent-hover : Theme.accent)
+        : (ta.pressed && enabled ? Theme.accent-soft : ta.has-hover && enabled ? Theme.panel-2 : Theme.panel);
+    animate background { duration: 120ms; easing: ease-out; }
+    animate opacity { duration: 150ms; }
     ta := TouchArea {
         enabled: root.enabled;
         mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.default;
         clicked => { root.clicked(); }
     }
-    label := Text {
-        width: parent.width;
-        height: parent.height;
-        text: root.text;
-        color: root.primary ? Theme.on-accent : Theme.text;
-        font-size: 13px;
-        font-weight: 600;
-        horizontal-alignment: center;
-        vertical-alignment: center;
+    hl := HorizontalLayout {
+        padding-left: 14px;
+        padding-right: root.menu ? 10px : 14px;
+        spacing: 6px;
+        alignment: center;
+        if root.icon.width > 0: Image {
+            source: root.icon;
+            colorize: root.fg;
+            width: 14px;
+            height: 14px;
+            y: (parent.height - self.height) / 2;
+        }
+        label := Text {
+            text: root.text;
+            color: root.fg;
+            font-size: 13px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+        if root.menu: Image {
+            source: @image-url("../assets/icons/chevron-down.svg");
+            colorize: Theme.muted;
+            width: 12px;
+            height: 12px;
+            y: (parent.height - self.height) / 2;
+        }
     }
 }
 
@@ -262,6 +284,7 @@ component IconButton inherits Rectangle {
     border-width: 1px;
     border-color: Theme.line;
     background: ta.has-hover && enabled ? Theme.panel-2 : Theme.panel;
+    animate background { duration: 120ms; easing: ease-out; }
     opacity: enabled ? 1 : 0.5;
     ta := TouchArea {
         enabled: root.enabled;
@@ -290,12 +313,22 @@ component IconButton inherits Rectangle {
 
 component Seg inherits Rectangle {
     in property <string> text;
+    in property <image> icon;
     in property <bool> on;
     callback clicked;
     height: 28px;
-    width: t.preferred-width + 20px;
+    width: icon.width > 0 ? 30px : t.preferred-width + 20px;
     border-radius: 6px;
     background: on ? Theme.accent-soft : ta.has-hover ? Theme.panel-2 : transparent;
+    animate background { duration: 120ms; easing: ease-out; }
+    if root.icon.width > 0: Image {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        width: 14px;
+        height: 14px;
+        source: root.icon;
+        colorize: Theme.muted;
+    }
     ta := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
@@ -303,7 +336,7 @@ component Seg inherits Rectangle {
     t := Text {
         width: parent.width;
         height: parent.height;
-        text: root.text;
+        text: root.icon.width > 0 ? "" : root.text;
         color: on ? Theme.accent : Theme.muted;
         font-weight: on ? 600 : 400;
         horizontal-alignment: center;
@@ -335,6 +368,7 @@ component ChipButton inherits Rectangle {
     border-width: 1px;
     border-color: on ? Theme.accent : Theme.line;
     background: on ? Theme.accent-soft : ta.has-hover ? Theme.panel-2 : Theme.panel;
+    animate background, border-color { duration: 140ms; easing: ease-out; }
     ta := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
@@ -365,7 +399,7 @@ component ThreadRow inherits Rectangle {
     callback clicked;
     height: 88px;
     background: selected ? Theme.accent-soft : ta.has-hover ? Theme.panel-2 : transparent;
-    animate background { duration: 120ms; }
+    animate background { duration: 140ms; easing: ease-out; }
     ta := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
@@ -435,7 +469,7 @@ component EventRow inherits Rectangle {
     callback clicked;
     height: 68px;
     background: ta.has-hover ? Theme.panel-2 : transparent;
-    animate background { duration: 120ms; }
+    animate background { duration: 120ms; easing: ease-out; }
     ta := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
@@ -862,6 +896,7 @@ component ThreadReader inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 IconButton {
+                    icon: root.expanded ? @image-url("../assets/icons/collapse.svg") : @image-url("../assets/icons/expand.svg");
                     label: root.expanded ? "Shrink" : "Expand";
                     clicked => { root.toggle-expand(); }
                 }
@@ -869,7 +904,7 @@ component ThreadReader inherits Rectangle {
             VerticalLayout {
                 alignment: center;
                 IconButton {
-                    label: "Close";
+                    icon: @image-url("../assets/icons/close.svg");
                     clicked => { root.close-thread(); }
                 }
             }
@@ -881,13 +916,15 @@ component ThreadReader inherits Rectangle {
             spacing: 8px;
             alignment: start;
             Button {
-                text: "✓ Done";
+                text: "Done";
+                icon: @image-url("../assets/icons/check.svg");
                 primary: true;
                 enabled: !root.demo;
                 clicked => { root.thread-action("done"); }
             }
             Button {
-                text: root.thread-starred ? "★ Starred" : "☆ Star";
+                text: root.thread-starred ? "Starred" : "Star";
+                icon: root.thread-starred ? @image-url("../assets/icons/star-filled.svg") : @image-url("../assets/icons/star.svg");
                 enabled: !root.demo;
                 clicked => { root.thread-action(root.thread-starred ? "unstar" : "star"); }
             }
@@ -897,17 +934,21 @@ component ThreadReader inherits Rectangle {
                 clicked => { root.thread-action("unread"); }
             }
             Button {
-                text: root.thread-important ? "→ Other" : "→ Important";
+                text: root.thread-important ? "Other" : "Important";
+                icon: @image-url("../assets/icons/arrow-right.svg");
                 enabled: !root.demo;
                 clicked => { root.thread-action(root.thread-important ? "other" : "important"); }
             }
             remind-btn := Button {
-                text: "⏰ Remind…";
+                text: "Remind";
+                icon: @image-url("../assets/icons/clock.svg");
+                menu: true;
                 enabled: !root.demo;
                 clicked => { remind-menu.show(); }
             }
             more-btn := Button {
-                text: "More…";
+                text: "More";
+                menu: true;
                 enabled: !root.demo;
                 clicked => { more-menu.show(); }
             }
@@ -988,25 +1029,31 @@ component ThreadReader inherits Rectangle {
                     border-width: 1px;
                     border-color: Theme.line;
                     background: Theme.bg;
-                    VerticalLayout {
-                        padding: 14px;
-                        spacing: 8px;
+                    // Exactly as tall as its content, so a short email never stretches.
+                    height: msg-col.preferred-height;
+                    msg-col := VerticalLayout {
+                        padding: 16px;
+                        spacing: 10px;
                         HorizontalLayout {
                             spacing: 8px;
+                            height: 22px;
                             Text {
+                                vertical-alignment: center;
                                 text: m.from;
                                 color: Theme.text;
                                 font-weight: 650;
                                 overflow: elide;
                             }
                             Text {
-                                text: "→ " + m.to;
+                                text: (m.to != "" ? "to " + m.to : "");
+                                vertical-alignment: center;
                                 color: Theme.muted;
                                 overflow: elide;
                                 horizontal-stretch: 1;
                             }
                             Text {
                                 text: m.when;
+                                vertical-alignment: center;
                                 color: Theme.faint;
                                 font-size: 12px;
                             }
@@ -1037,11 +1084,13 @@ component ThreadReader inherits Rectangle {
             spacing: 8px;
             Button {
                 text: "Reply";
+                icon: @image-url("../assets/icons/reply.svg");
                 primary: true;
                 clicked => { root.reply-open = true; }
             }
             Button {
                 text: root.drafting ? "Drafting…" : "Draft with Superhuman AI";
+                icon: @image-url("../assets/icons/spark.svg");
                 enabled: root.ai-enabled && !root.drafting;
                 clicked => { root.reply-open = true; root.draft-ai(); }
             }
@@ -1826,7 +1875,7 @@ export component MainWindow inherits Window {
                     height: 34px;
                     SegGroup {
                         Seg {
-                            text: "‹";
+                            icon: @image-url("../assets/icons/chevron-left.svg");
                             clicked => { root.cal-step(-1); }
                         }
                         Seg {
@@ -1834,7 +1883,7 @@ export component MainWindow inherits Window {
                             clicked => { root.cal-step(0); }
                         }
                         Seg {
-                            text: "›";
+                            icon: @image-url("../assets/icons/chevron-right.svg");
                             clicked => { root.cal-step(1); }
                         }
                     }
@@ -1869,7 +1918,8 @@ export component MainWindow inherits Window {
                         }
                     }
                     Button {
-                        text: "+ New event";
+                        text: "New event";
+                        icon: @image-url("../assets/icons/plus.svg");
                         primary: true;
                         clicked => { root.new-event(); }
                     }
@@ -2273,7 +2323,10 @@ export component MainWindow inherits Window {
             background: #00000080;
             TouchArea { clicked => { root.reader-expanded = false; } }
         }
+        // Zero-sized: it only needs keyboard focus, and must not cover the scrim's clicks.
         esc := FocusScope {
+            width: 0px;
+            height: 0px;
             init => { self.focus(); }
             key-pressed(e) => {
                 if (e.text == Key.Escape) { root.reader-expanded = false; return accept; }
@@ -2368,9 +2421,20 @@ export component MainWindow inherits Window {
                     color: Theme.muted;
                     wrap: word-wrap;
                 }
-                if root.sel-event.clash: Text {
-                    text: "⚠ Overlaps another event";
-                    color: Theme.high;
+                if root.sel-event.clash: HorizontalLayout {
+                    spacing: 6px;
+                    alignment: start;
+                    Image {
+                        source: @image-url("../assets/icons/warning.svg");
+                        colorize: Theme.high;
+                        width: 14px;
+                        height: 14px;
+                        y: (parent.height - self.height) / 2;
+                    }
+                    Text {
+                        text: "Overlaps another event";
+                        color: Theme.high;
+                    }
                 }
                 if root.sel-event.status != "": Text {
                     text: "Your response: " + root.sel-event.status;

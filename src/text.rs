@@ -3,7 +3,7 @@
 /// Email HTML as readable plain text. Links are kept as numbered references at the end.
 pub fn html_to_text(html: &str) -> String {
     if !html.contains('<') {
-        return crate::model::decode_entities(html).trim().to_string();
+        return tidy(&clean(&crate::model::decode_entities(html)));
     }
     // Newsletters and digests lay pages out with nested tables. Read every cell as its own line
     // (no ─ borders), with no link markers or footnotes of long tracking URLs.
@@ -17,15 +17,42 @@ pub fn html_to_text(html: &str) -> String {
         .map(|l| l.trim_matches(|c: char| c == '\u{200b}' || c == '\u{a0}' || c == '\u{feff}').trim_end())
         .filter(|l| !(l.chars().count() >= 3 && l.chars().all(|c| matches!(c, '─' | '━' | '-' | '=' | '_' | '│' | '┼' | ' '))))
         .collect();
-    tidy(&cleaned.join("\n"))
+    tidy(&clean(&cleaned.join("\n")))
 }
 
-/// Collapse runs of blank lines and trailing spaces.
+/// Make text safe to draw: drop the invisible characters newsletters pad their
+/// previews with (zero-width joiners, soft hyphens, combining grapheme joiners,
+/// direction marks, variation selectors), turn odd spaces into plain ones and
+/// swap the few symbols the UI font has no glyph for. Without this they show
+/// up as empty boxes.
+pub fn clean(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\u{00A0}' | '\u{2000}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\t' => out.push(' '),
+            '\u{00AD}' | '\u{034F}' | '\u{061C}' | '\u{115F}' | '\u{1160}' | '\u{17B4}' | '\u{17B5}' | '\u{180E}' => {}
+            '\u{200B}'..='\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2060}'..='\u{206F}' | '\u{FEFF}' => {}
+            '\u{FE00}'..='\u{FE0F}' | '\u{E0000}'..='\u{E007F}' | '\u{FFF9}'..='\u{FFFD}' => {}
+            '\u{2028}' | '\u{2029}' => out.push('\n'),
+            '\u{2500}' | '\u{2501}' | '\u{2504}'..='\u{250B}' | '\u{2550}' | '\u{254C}'..='\u{254F}' => out.push('-'),
+            '\u{2502}' | '\u{2503}' | '\u{2551}' => out.push('|'),
+            '\u{2504}'..='\u{257F}' => out.push('+'),
+            '\u{26A0}' => out.push('!'),
+            '\r' => {}
+            c if c.is_control() && c != '\n' => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Collapse runs of blank lines, runs of spaces inside a line, and trailing spaces.
 fn tidy(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut blank = 0;
     for line in s.lines() {
-        let line = line.trim_end();
+        let line = collapse_spaces(line.trim_end());
+        let line = line.as_str();
         if line.trim().is_empty() {
             blank += 1;
             if blank > 1 {
@@ -40,7 +67,27 @@ fn tidy(s: &str) -> String {
     out.trim().to_string()
 }
 
-/// Claude's Markdown as tidy plain text: bullets become •, emphasis markers go,
+fn collapse_spaces(line: &str) -> String {
+    let body = line.trim_start();
+    let indent = &line[..line.len() - body.len()];
+    let mut out = String::with_capacity(line.len());
+    out.push_str(&indent[..indent.len().min(8)]);
+    let mut prev_space = false;
+    for c in body.chars() {
+        if c == ' ' {
+            if !prev_space {
+                out.push(c);
+            }
+            prev_space = true;
+        } else {
+            out.push(c);
+            prev_space = false;
+        }
+    }
+    out
+}
+
+/// Markdown as tidy plain text: bullets become •, emphasis markers go,
 /// links become "text (url)".
 pub fn markdown_to_text(md: &str) -> String {
     let mut out = Vec::new();
@@ -86,6 +133,15 @@ mod tests {
     fn markdown() {
         let t = markdown_to_text("## Today\n- **Dentist** at 3pm\n- see [link](https://x.y)\n\n\n\nDone");
         assert_eq!(t, "TODAY\n• Dentist at 3pm\n• see link (https://x.y)\n\nDone");
+    }
+
+    #[test]
+    fn invisible_padding_and_entities() {
+        let t = html_to_text("Sale ends&nbsp;soon&#8217;s \u{034F}\u{200C}\u{00A0}\u{034F}\u{200C} &rsquo;done&hellip;");
+        assert_eq!(t, "Sale ends soon\u{2019}s 'done\u{2026}");
+        let t = html_to_text("<table><tr><td>Left</td><td>Right</td></tr></table><p><b>Bold</b> <a href='https://x.y'>link</a></p>");
+        assert!(t.contains("Left") && t.contains("Right") && t.contains("Bold link"), "{t}");
+        assert!(!t.contains('\u{2500}') && !t.contains("**") && !t.contains("[1]"), "{t}");
     }
 
     #[test]

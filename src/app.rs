@@ -369,22 +369,11 @@ fn wire(app: &MainWindow, ctx: &Arc<Ctx>, pending: &Pending, chat: &Rc<VecModel<
         app.set_category(c.clone());
         render_inbox(&ctx, &app);
     });
+    // Search filters the conversations already loaded, so results update on every keystroke
+    // with no network round trip.
     on!(on_search, |app, ctx, q: SharedString| {
-        let gen = {
-            let mut st = ctx.st();
-            st.query = q.to_string();
-            st.search_gen += 1;
-            st.search_gen
-        };
-        let w = app.as_weak();
-        let c = ctx.clone();
-        ctx.spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-            if c.st().search_gen == gen {
-                let c2 = c.clone();
-                later(&w, move |app| load_inbox(&c2, &app));
-            }
-        });
+        ctx.st().query = q.to_string();
+        render_inbox(&ctx, &app);
     });
 
     // threads
@@ -984,9 +973,10 @@ fn apply_overview(ctx: &Arc<Ctx>, app: &MainWindow, ov: Overview) {
 }
 
 fn load_inbox(ctx: &Arc<Ctx>, app: &MainWindow) {
-    let (account, q, gen) = {
-        let st = ctx.st();
-        (st.account.clone(), st.query.clone(), st.search_gen)
+    let (account, gen) = {
+        let mut st = ctx.st();
+        st.search_gen += 1;
+        (st.account.clone(), st.search_gen)
     };
     let label = if account == "all" { "All accounts".to_string() } else { acct(&ctx.st().accounts, &account).0 };
     app.set_subtitle(ss(label));
@@ -994,7 +984,7 @@ fn load_inbox(ctx: &Arc<Ctx>, app: &MainWindow) {
     let w = app.as_weak();
     let c = ctx.clone();
     ctx.spawn(async move {
-        let r = c.hub.inbox(Some(&account), None, Some(&q)).await;
+        let r = c.hub.inbox(Some(&account), None, None).await;
         let c2 = c.clone();
         later(&w, move |app| {
             app.set_loading(false);
@@ -1031,6 +1021,7 @@ fn render_inbox(ctx: &Arc<Ctx>, app: &MainWindow) {
         st.category = "All".into();
         app.set_category(ss("All"));
     }
+    let q = st.query.trim().to_lowercase();
     let mut chips = vec![Chip { name: ss("All"), count: st.threads.len() as i32 }];
     chips.extend(counts.iter().map(|(c, n)| Chip { name: ss(c), count: *n }));
     app.set_chips(model(chips));
@@ -1038,6 +1029,7 @@ fn render_inbox(ctx: &Arc<Ctx>, app: &MainWindow) {
         .threads
         .iter()
         .filter(|t| st.category == "All" || t.category == st.category)
+        .filter(|t| q.is_empty() || t.subject.to_lowercase().contains(&q) || t.snippet.to_lowercase().contains(&q) || t.from.to_lowercase().contains(&q))
         .map(|t| {
             let tag = if t.category == model::PRIMARY { "" } else { t.category.as_str() };
             thread_item(t, &st.accounts, &tz, tag, "tag", "")
@@ -1069,23 +1061,34 @@ fn open_thread(ctx: &Arc<Ctx>, app: &MainWindow, account: String, id: String) {
     let c = ctx.clone();
     ctx.spawn(async move {
         let r = c.hub.thread(&account, &id).await;
+        // HTML to text is the slow part of opening a long email, so it runs here on a worker
+        // thread; the UI thread only receives ready-made strings.
+        let tz = c.tz();
+        let r = r.map(|t| {
+            let rows: Vec<[String; 5]> = t
+                .messages
+                .iter()
+                .map(|m| {
+                    [
+                        sender_line(&m.from),
+                        m.to.join(", "),
+                        m.sent_at.map(|d| tz.local(d).format("%b %-d, %Y, %-I:%M %p").to_string()).unwrap_or_default(),
+                        text::html_to_text(&m.body),
+                        m.attachments.join(", "),
+                    ]
+                })
+                .collect();
+            (t, rows)
+        });
         let c2 = c.clone();
         later(&w, move |app| {
             app.set_thread_loading(false);
             match r {
-                Ok(t) => {
-                    let tz = c2.tz();
+                Ok((t, rows)) => {
                     let (label, color) = acct(&c2.st().accounts, &account);
-                    let msgs: Vec<MessageItem> = t
-                        .messages
-                        .iter()
-                        .map(|m| MessageItem {
-                            from: ss(sender_line(&m.from)),
-                            to: ss(m.to.join(", ")),
-                            when: ss(m.sent_at.map(|d| tz.local(d).format("%b %-d, %Y, %-I:%M %p").to_string()).unwrap_or_default()),
-                            body: ss(text::html_to_text(&m.body)),
-                            attachments: ss(m.attachments.join(", ")),
-                        })
+                    let msgs: Vec<MessageItem> = rows
+                        .into_iter()
+                        .map(|[from, to, when, body, attachments]| MessageItem { from: ss(from), to: ss(to), when: ss(when), body: ss(body), attachments: ss(attachments) })
                         .collect();
                     let changed = app.get_thread_id() != id.as_str() || app.get_thread_account() != account.as_str();
                     app.set_messages(model(msgs));
