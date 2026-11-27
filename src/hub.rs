@@ -305,11 +305,21 @@ impl Hub {
         if self.demo() {
             return demo::thread_full(email, id).ok_or_else(|| anyhow!("not found"));
         }
+        // Cached for 90 s (cleared after any change), so reopening or a prefetched thread is instant.
         let v = self
-            .mcp()?
-            .call_as(email, "get_thread", json!({"thread_id": id, "include_comments": false, "include_drafts": false, "message_limit": 20}))
+            .cached(email, "get_thread", json!({"thread_id": id, "include_comments": false, "include_drafts": false, "message_limit": 20}))
             .await?;
         Ok(model::parse_thread_full(email, &v))
+    }
+
+    /// Warm the cache for the first few threads in the list, a couple at a time.
+    pub async fn prefetch_threads(&self, threads: Vec<(String, String)>) {
+        use futures::stream::{self, StreamExt};
+        stream::iter(threads)
+            .for_each_concurrent(3, |(account, id)| async move {
+                let _ = self.thread(&account, &id).await;
+            })
+            .await;
     }
 
     /// Everything across accounts, for the dashboard.

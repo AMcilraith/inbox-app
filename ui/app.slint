@@ -365,6 +365,7 @@ component ThreadRow inherits Rectangle {
     callback clicked;
     height: 88px;
     background: selected ? Theme.accent-soft : ta.has-hover ? Theme.panel-2 : transparent;
+    animate background { duration: 120ms; }
     ta := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
@@ -434,6 +435,7 @@ component EventRow inherits Rectangle {
     callback clicked;
     height: 68px;
     background: ta.has-hover ? Theme.panel-2 : transparent;
+    animate background { duration: 120ms; }
     ta := TouchArea {
         mouse-cursor: pointer;
         clicked => { root.clicked(); }
@@ -796,6 +798,321 @@ component MonthGrid inherits Rectangle {
 
 // -------------------------------------------------------------- window --
 
+
+// --------------------------------------------------------- reading pane --
+// One reader used both in the inbox's side pane and in the expanded "bubble".
+
+component ThreadReader inherits Rectangle {
+    in property <bool> loading;
+    in property <color> thread-color;
+    in property <string> thread-subject;
+    in property <string> thread-account-label;
+    in property <string> thread-account;
+    in property <bool> thread-starred;
+    in property <bool> thread-important;
+    in property <bool> demo;
+    in property <[MessageItem]> messages;
+    in-out property <string> guidance-text;
+    in-out property <string> reply-text;
+    in property <bool> drafting;
+    in property <bool> ai-enabled;
+    in property <bool> replying;
+    in property <string> reply-note;
+    in property <bool> expanded;
+    in-out property <bool> reply-open: reply-text != "";
+    callback close-thread();
+    callback toggle-expand();
+    callback thread-action(string);
+    callback draft-ai();
+    callback save-draft();
+    callback send-reply();
+    changed reply-text => { if (self.reply-text != "") { self.reply-open = true; } }
+
+    // fade + slide in when a conversation opens
+    property <bool> shown: false;
+    init => { self.shown = true; }
+    opacity: shown ? 1 : 0;
+    animate opacity { duration: 180ms; easing: ease-out; }
+    VerticalLayout {
+        y: root.shown ? 0px : 10px;
+        animate y { duration: 220ms; easing: ease-out; }
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 12px;
+            height: 50px;
+            spacing: 10px;
+            VerticalLayout {
+                alignment: center;
+                Dot { c: root.thread-color; size: 10px; }
+            }
+            Text {
+                text: root.thread-subject;
+                color: Theme.text;
+                font-size: 15px;
+                font-weight: 650;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+            Text {
+                text: root.thread-account-label;
+                color: Theme.muted;
+                vertical-alignment: center;
+            }
+            VerticalLayout {
+                alignment: center;
+                IconButton {
+                    label: root.expanded ? "Shrink" : "Expand";
+                    clicked => { root.toggle-expand(); }
+                }
+            }
+            VerticalLayout {
+                alignment: center;
+                IconButton {
+                    label: "Close";
+                    clicked => { root.close-thread(); }
+                }
+            }
+        }
+        HorizontalLayout {
+            padding-left: 16px;
+            padding-right: 12px;
+            padding-bottom: 10px;
+            spacing: 8px;
+            alignment: start;
+            Button {
+                text: "✓ Done";
+                primary: true;
+                enabled: !root.demo;
+                clicked => { root.thread-action("done"); }
+            }
+            Button {
+                text: root.thread-starred ? "★ Starred" : "☆ Star";
+                enabled: !root.demo;
+                clicked => { root.thread-action(root.thread-starred ? "unstar" : "star"); }
+            }
+            Button {
+                text: "Unread";
+                enabled: !root.demo;
+                clicked => { root.thread-action("unread"); }
+            }
+            Button {
+                text: root.thread-important ? "→ Other" : "→ Important";
+                enabled: !root.demo;
+                clicked => { root.thread-action(root.thread-important ? "other" : "important"); }
+            }
+            remind-btn := Button {
+                text: "⏰ Remind…";
+                enabled: !root.demo;
+                clicked => { remind-menu.show(); }
+            }
+            more-btn := Button {
+                text: "More…";
+                enabled: !root.demo;
+                clicked => { more-menu.show(); }
+            }
+            remind-menu := PopupWindow {
+                x: remind-btn.x;
+                y: remind-btn.y + remind-btn.height + 4px;
+                width: 220px;
+                Rectangle {
+                    background: Theme.panel;
+                    border-radius: 10px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    drop-shadow-blur: 16px;
+                    drop-shadow-color: #00000040;
+                    VerticalLayout {
+                        padding: 6px;
+                        spacing: 2px;
+                        for o in [
+                            { label: "In 3 hours", a: "remind-3h" },
+                            { label: "Tomorrow, 8 AM", a: "remind-tomorrow" },
+                            { label: "Monday, 8 AM", a: "remind-monday" },
+                        ]: Rectangle {
+                            height: 34px;
+                            border-radius: 6px;
+                            background: ra.has-hover ? Theme.panel-2 : transparent;
+                            ra := TouchArea { clicked => { root.thread-action(o.a); } }
+                            Text { x: 12px; text: o.label; color: Theme.text; vertical-alignment: center; height: parent.height; }
+                        }
+                    }
+                }
+            }
+            more-menu := PopupWindow {
+                x: more-btn.x;
+                y: more-btn.y + more-btn.height + 4px;
+                width: 220px;
+                Rectangle {
+                    background: Theme.panel;
+                    border-radius: 10px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    drop-shadow-blur: 16px;
+                    drop-shadow-color: #00000040;
+                    VerticalLayout {
+                        padding: 6px;
+                        spacing: 2px;
+                        for o in [
+                            { label: "Unsubscribe", a: "unsubscribe" },
+                            { label: "Mark as spam", a: "spam" },
+                            { label: "Move to trash", a: "trash" },
+                        ]: Rectangle {
+                            height: 34px;
+                            border-radius: 6px;
+                            background: ma.has-hover ? Theme.panel-2 : transparent;
+                            ma := TouchArea { clicked => { root.thread-action(o.a); } }
+                            Text { x: 12px; text: o.label; color: o.a == "trash" ? Theme.high : Theme.text; vertical-alignment: center; height: parent.height; }
+                        }
+                    }
+                }
+            }
+        }
+        Divider { }
+        msgs-sv := ScrollView {
+            vertical-stretch: 1;
+            VerticalLayout {
+                padding-top: 16px;
+                padding-bottom: 16px;
+                padding-left: Math.max(16px, (msgs-sv.visible-width - 860px) / 2);
+                padding-right: Math.max(16px, (msgs-sv.visible-width - 860px) / 2);
+                spacing: 14px;
+                alignment: start;
+                if root.loading: Text {
+                    text: "Loading conversation…";
+                    color: Theme.faint;
+                    horizontal-alignment: center;
+                }
+                for m in root.messages: Rectangle {
+                    border-radius: 10px;
+                    border-width: 1px;
+                    border-color: Theme.line;
+                    background: Theme.bg;
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 8px;
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text {
+                                text: m.from;
+                                color: Theme.text;
+                                font-weight: 650;
+                                overflow: elide;
+                            }
+                            Text {
+                                text: "→ " + m.to;
+                                color: Theme.muted;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                            }
+                            Text {
+                                text: m.when;
+                                color: Theme.faint;
+                                font-size: 12px;
+                            }
+                        }
+                        TextInput {
+                            font-size: 14px;
+                            vertical-alignment: top;
+                            text: m.body;
+                            read-only: true;
+                            wrap: word-wrap;
+                            color: Theme.text;
+                            selection-background-color: Theme.accent-soft;
+                            single-line: false;
+                        }
+                        if m.attachments != "": Text {
+                            text: "Attachments: " + m.attachments;
+                            color: Theme.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+        }
+        Divider { }
+        if !root.reply-open: HorizontalLayout {
+            padding: 12px;
+            spacing: 8px;
+            Button {
+                text: "Reply";
+                primary: true;
+                clicked => { root.reply-open = true; }
+            }
+            Button {
+                text: root.drafting ? "Drafting…" : "Draft with Superhuman AI";
+                enabled: root.ai-enabled && !root.drafting;
+                clicked => { root.reply-open = true; root.draft-ai(); }
+            }
+            Rectangle { horizontal-stretch: 1; }
+            if root.reply-note != "": Text {
+                text: root.reply-note;
+                color: Theme.muted;
+                font-size: 12px;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+        if root.reply-open: VerticalLayout {
+            padding: 14px;
+            spacing: 8px;
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: "Reply";
+                    color: Theme.text;
+                    font-weight: 650;
+                }
+                Text {
+                    text: "from " + root.thread-account;
+                    color: Theme.muted;
+                    horizontal-stretch: 1;
+                }
+                IconButton {
+                    label: "Hide";
+                    clicked => { root.reply-open = false; }
+                }
+            }
+            LineEdit {
+                placeholder-text: "Optional: tell Superhuman AI what to say (e.g. confirm, ask to move it to Tuesday)";
+                text <=> root.guidance-text;
+            }
+            TextEdit {
+                height: 120px;
+                text <=> root.reply-text;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Button {
+                    text: root.drafting ? "Drafting…" : "Draft with Superhuman AI";
+                    enabled: root.ai-enabled && !root.drafting;
+                    clicked => { root.draft-ai(); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Button {
+                    text: "Save to Superhuman drafts";
+                    enabled: !root.demo && !root.replying;
+                    clicked => { root.save-draft(); }
+                }
+                Button {
+                    text: root.replying ? "Sending…" : "Send";
+                    primary: true;
+                    enabled: !root.demo && !root.replying;
+                    clicked => { root.send-reply(); }
+                }
+            }
+            if root.reply-note != "": Text {
+                text: root.reply-note;
+                color: Theme.muted;
+                font-size: 12px;
+                wrap: word-wrap;
+            }
+        }
+        }
+}
+
 export component MainWindow inherits Window {
     title: "Inbox Hub";
     icon: @image-url("../assets/icon-256.png");
@@ -847,6 +1164,7 @@ export component MainWindow inherits Window {
     in property <bool> thread-loading;
     in property <string> thread-account;
     in property <string> thread-id;
+    in-out property <bool> reader-expanded;
     in property <string> thread-last-id;
     in property <bool> thread-starred;
     in property <bool> thread-important: true;
@@ -1439,7 +1757,7 @@ export component MainWindow inherits Window {
                     spacing: 16px;
                     vertical-stretch: 1;
                     Card {
-                        width: Math.max(320px, (root.width - 300px) * 0.38);
+                        width: Math.max(300px, (root.width - 300px) * 0.30);
                         VerticalLayout {
                             padding: 6px;
                             if root.inbox-error != "": Empty {
@@ -1466,237 +1784,31 @@ export component MainWindow inherits Window {
                             height: parent.height;
                             text: root.thread-loading ? "Loading conversation…" : "Select a conversation";
                         }
-                        if root.thread-open: VerticalLayout {
-                            HorizontalLayout {
-                                padding-left: 16px;
-                                padding-right: 12px;
-                                height: 50px;
-                                spacing: 10px;
-                                VerticalLayout {
-                                    alignment: center;
-                                    Dot { c: root.thread-color; size: 10px; }
-                                }
-                                Text {
-                                    text: root.thread-subject;
-                                    color: Theme.text;
-                                    font-size: 15px;
-                                    font-weight: 650;
-                                    vertical-alignment: center;
-                                    overflow: elide;
-                                    horizontal-stretch: 1;
-                                }
-                                Text {
-                                    text: root.thread-account-label;
-                                    color: Theme.muted;
-                                    vertical-alignment: center;
-                                }
-                                VerticalLayout {
-                                    alignment: center;
-                                    IconButton {
-                                        label: "Close";
-                                        clicked => { root.close-thread(); }
-                                    }
-                                }
-                            }
-                            HorizontalLayout {
-                                padding-left: 16px;
-                                padding-right: 12px;
-                                padding-bottom: 10px;
-                                spacing: 8px;
-                                alignment: start;
-                                Button {
-                                    text: "✓ Done";
-                                    primary: true;
-                                    enabled: !root.demo;
-                                    clicked => { root.thread-action("done"); }
-                                }
-                                Button {
-                                    text: root.thread-starred ? "★ Starred" : "☆ Star";
-                                    enabled: !root.demo;
-                                    clicked => { root.thread-action(root.thread-starred ? "unstar" : "star"); }
-                                }
-                                Button {
-                                    text: "Unread";
-                                    enabled: !root.demo;
-                                    clicked => { root.thread-action("unread"); }
-                                }
-                                Button {
-                                    text: root.thread-important ? "→ Other" : "→ Important";
-                                    enabled: !root.demo;
-                                    clicked => { root.thread-action(root.thread-important ? "other" : "important"); }
-                                }
-                                remind-btn := Button {
-                                    text: "⏰ Remind ▾";
-                                    enabled: !root.demo;
-                                    clicked => { remind-menu.show(); }
-                                }
-                                more-btn := Button {
-                                    text: "More ▾";
-                                    enabled: !root.demo;
-                                    clicked => { more-menu.show(); }
-                                }
-                                remind-menu := PopupWindow {
-                                    x: remind-btn.x;
-                                    y: remind-btn.y + remind-btn.height + 4px;
-                                    width: 220px;
-                                    Rectangle {
-                                        background: Theme.panel;
-                                        border-radius: 10px;
-                                        border-width: 1px;
-                                        border-color: Theme.line;
-                                        drop-shadow-blur: 16px;
-                                        drop-shadow-color: #00000040;
-                                        VerticalLayout {
-                                            padding: 6px;
-                                            spacing: 2px;
-                                            for o in [
-                                                { label: "In 3 hours", a: "remind-3h" },
-                                                { label: "Tomorrow, 8 AM", a: "remind-tomorrow" },
-                                                { label: "Monday, 8 AM", a: "remind-monday" },
-                                            ]: Rectangle {
-                                                height: 34px;
-                                                border-radius: 6px;
-                                                background: ra.has-hover ? Theme.panel-2 : transparent;
-                                                ra := TouchArea { clicked => { root.thread-action(o.a); } }
-                                                Text { x: 12px; text: o.label; color: Theme.text; vertical-alignment: center; height: parent.height; }
-                                            }
-                                        }
-                                    }
-                                }
-                                more-menu := PopupWindow {
-                                    x: more-btn.x;
-                                    y: more-btn.y + more-btn.height + 4px;
-                                    width: 220px;
-                                    Rectangle {
-                                        background: Theme.panel;
-                                        border-radius: 10px;
-                                        border-width: 1px;
-                                        border-color: Theme.line;
-                                        drop-shadow-blur: 16px;
-                                        drop-shadow-color: #00000040;
-                                        VerticalLayout {
-                                            padding: 6px;
-                                            spacing: 2px;
-                                            for o in [
-                                                { label: "Unsubscribe", a: "unsubscribe" },
-                                                { label: "Mark as spam", a: "spam" },
-                                                { label: "Move to trash", a: "trash" },
-                                            ]: Rectangle {
-                                                height: 34px;
-                                                border-radius: 6px;
-                                                background: ma.has-hover ? Theme.panel-2 : transparent;
-                                                ma := TouchArea { clicked => { root.thread-action(o.a); } }
-                                                Text { x: 12px; text: o.label; color: o.a == "trash" ? Theme.high : Theme.text; vertical-alignment: center; height: parent.height; }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Divider { }
-                            ScrollView {
-                                vertical-stretch: 1;
-                                VerticalLayout {
-                                    padding: 16px;
-                                    spacing: 14px;
-                                    for m in root.messages: Rectangle {
-                                        border-radius: 10px;
-                                        border-width: 1px;
-                                        border-color: Theme.line;
-                                        background: Theme.bg;
-                                        VerticalLayout {
-                                            padding: 14px;
-                                            spacing: 8px;
-                                            HorizontalLayout {
-                                                spacing: 8px;
-                                                Text {
-                                                    text: m.from;
-                                                    color: Theme.text;
-                                                    font-weight: 650;
-                                                    overflow: elide;
-                                                }
-                                                Text {
-                                                    text: "→ " + m.to;
-                                                    color: Theme.muted;
-                                                    overflow: elide;
-                                                    horizontal-stretch: 1;
-                                                }
-                                                Text {
-                                                    text: m.when;
-                                                    color: Theme.faint;
-                                                    font-size: 12px;
-                                                }
-                                            }
-                                            TextInput {
-                                                text: m.body;
-                                                read-only: true;
-                                                wrap: word-wrap;
-                                                color: Theme.text;
-                                                selection-background-color: Theme.accent-soft;
-                                                single-line: false;
-                                            }
-                                            if m.attachments != "": Text {
-                                                text: "Attachments: " + m.attachments;
-                                                color: Theme.muted;
-                                                font-size: 12px;
-                                                wrap: word-wrap;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Divider { }
-                            VerticalLayout {
-                                padding: 14px;
-                                spacing: 8px;
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    Text {
-                                        text: "Reply";
-                                        color: Theme.text;
-                                        font-weight: 650;
-                                    }
-                                    Text {
-                                        text: "from " + root.thread-account;
-                                        color: Theme.muted;
-                                        horizontal-stretch: 1;
-                                    }
-                                }
-                                LineEdit {
-                                    placeholder-text: "Optional: tell Superhuman AI what to say (e.g. confirm, ask to move it to Tuesday)";
-                                    text <=> root.guidance-text;
-                                }
-                                TextEdit {
-                                    height: 120px;
-                                    text <=> root.reply-text;
-                                    wrap: word-wrap;
-                                }
-                                HorizontalLayout {
-                                    spacing: 8px;
-                                    Button {
-                                        text: root.drafting ? "Drafting…" : "✦ Draft with Superhuman AI";
-                                        enabled: root.ai-enabled && !root.drafting;
-                                        clicked => { root.draft-ai(); }
-                                    }
-                                    Rectangle { horizontal-stretch: 1; }
-                                    Button {
-                                        text: "Save to Superhuman drafts";
-                                        enabled: !root.demo && !root.replying;
-                                        clicked => { root.save-draft(); }
-                                    }
-                                    Button {
-                                        text: root.replying ? "Sending…" : "Send";
-                                        primary: true;
-                                        enabled: !root.demo && !root.replying;
-                                        clicked => { root.send-reply(); }
-                                    }
-                                }
-                                if root.reply-note != "": Text {
-                                    text: root.reply-note;
-                                    color: Theme.muted;
-                                    font-size: 12px;
-                                    wrap: word-wrap;
-                                }
-                            }
+                        if root.thread-open || root.thread-loading: ThreadReader {
+                            width: parent.width;
+                            height: parent.height;
+                            loading: root.thread-loading && !root.thread-open;
+                            thread-color: root.thread-color;
+                            thread-subject: root.thread-subject;
+                            thread-account-label: root.thread-account-label;
+                            thread-account: root.thread-account;
+                            thread-starred: root.thread-starred;
+                            thread-important: root.thread-important;
+                            demo: root.demo;
+                            messages: root.messages;
+                            guidance-text <=> root.guidance-text;
+                            reply-text <=> root.reply-text;
+                            drafting: root.drafting;
+                            ai-enabled: root.ai-enabled;
+                            replying: root.replying;
+                            reply-note: root.reply-note;
+                            expanded: false;
+                            close-thread => { root.close-thread(); }
+                            toggle-expand => { root.reader-expanded = true; }
+                            thread-action(a) => { root.thread-action(a); }
+                            draft-ai => { root.draft-ai(); }
+                            save-draft => { root.save-draft(); }
+                            send-reply => { root.send-reply(); }
                         }
                     }
                 }
@@ -2053,7 +2165,7 @@ export component MainWindow inherits Window {
                 VerticalLayout {
                     alignment: center;
                     IconButton {
-                        label: "✕";
+                        label: "Close";
                         clicked => { root.chat-open = false; }
                     }
                 }
@@ -2145,6 +2257,69 @@ export component MainWindow inherits Window {
                     enabled: root.ai-enabled && !root.chat-busy && root.chat-input != "";
                     clicked => { root.ask(root.chat-input); }
                 }
+            }
+        }
+    }
+
+
+    // ---------------------------------------------------------- expanded reader (bubble)
+    if root.reader-expanded && (root.thread-open || root.thread-loading): Rectangle {
+        property <bool> shown: false;
+        init => { self.shown = true; }
+        background: transparent;
+        opacity: shown ? 1 : 0;
+        animate opacity { duration: 200ms; easing: ease-out; }
+        Rectangle {
+            background: #00000080;
+            TouchArea { clicked => { root.reader-expanded = false; } }
+        }
+        esc := FocusScope {
+            init => { self.focus(); }
+            key-pressed(e) => {
+                if (e.text == Key.Escape) { root.reader-expanded = false; return accept; }
+                reject
+            }
+        }
+        Rectangle {
+            x: parent.width * 0.04;
+            width: parent.width * 0.92;
+            height: parent.height * 0.92;
+            y: parent.shown ? parent.height * 0.04 : parent.height * 0.08;
+            animate y { duration: 240ms; easing: ease-out; }
+            background: Theme.panel;
+            border-radius: 18px;
+            border-width: 1px;
+            border-color: Theme.line;
+            drop-shadow-blur: 40px;
+            drop-shadow-offset-y: 8px;
+            drop-shadow-color: #00000070;
+            clip: true;
+            TouchArea { }   // keep clicks inside the bubble from closing it
+            ThreadReader {
+                width: parent.width;
+                height: parent.height;
+                loading: root.thread-loading && !root.thread-open;
+                thread-color: root.thread-color;
+                thread-subject: root.thread-subject;
+                thread-account-label: root.thread-account-label;
+                thread-account: root.thread-account;
+                thread-starred: root.thread-starred;
+                thread-important: root.thread-important;
+                demo: root.demo;
+                messages: root.messages;
+                guidance-text <=> root.guidance-text;
+                reply-text <=> root.reply-text;
+                drafting: root.drafting;
+                ai-enabled: root.ai-enabled;
+                replying: root.replying;
+                reply-note: root.reply-note;
+                expanded: true;
+                close-thread => { root.reader-expanded = false; root.close-thread(); }
+                toggle-expand => { root.reader-expanded = false; }
+                thread-action(a) => { root.thread-action(a); }
+                draft-ai => { root.draft-ai(); }
+                save-draft => { root.save-draft(); }
+                send-reply => { root.send-reply(); }
             }
         }
     }

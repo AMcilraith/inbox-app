@@ -47,8 +47,11 @@ val ACCOUNT_COLORS = listOf(0xFF5B5BD6, 0xFF0F8FB3, 0xFFC27C0E, 0xFF2F855A, 0xFF
 
 fun displayName(addr: String): String = Names.displayName(addr)
 
+private val NON_CONTENT = Regex("(?is)<(head|style|script|title)\\b.*?</\\1>")
+
 fun htmlToText(html: String): String =
-    HtmlCompat.fromHtml(html, HtmlCompat.FROM_HTML_MODE_COMPACT).toString()
+    // Newsletter HTML carries CSS in <style>/<head>; Android's converter would show it as text.
+    HtmlCompat.fromHtml(html.replace(NON_CONTENT, ""), HtmlCompat.FROM_HTML_MODE_COMPACT).toString()
         .replace(Regex("￼"), "")
         .replace(Regex("\n{3,}"), "\n\n")
         .trim()

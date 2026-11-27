@@ -5,8 +5,19 @@ pub fn html_to_text(html: &str) -> String {
     if !html.contains('<') {
         return crate::model::decode_entities(html).trim().to_string();
     }
-    let text = html2text::from_read(html.as_bytes(), 10_000);
-    tidy(&text)
+    // Newsletters and digests lay pages out with nested tables. Read every cell as its own line
+    // (no ─ borders), with no link markers or footnotes of long tracking URLs.
+    let text = html2text::config::with_decorator(html2text::render::text_renderer::TrivialDecorator::new())
+        .raw_mode(true)
+        .string_from_read(html.as_bytes(), 10_000)
+        .unwrap_or_else(|_| crate::model::strip_tags(html));
+    // Drop leftover separator-only lines (─────, -----, =====) and invisible spacer characters.
+    let cleaned: Vec<&str> = text
+        .lines()
+        .map(|l| l.trim_matches(|c: char| c == '\u{200b}' || c == '\u{a0}' || c == '\u{feff}').trim_end())
+        .filter(|l| !(l.chars().count() >= 3 && l.chars().all(|c| matches!(c, '─' | '━' | '-' | '=' | '_' | '│' | '┼' | ' '))))
+        .collect();
+    tidy(&cleaned.join("\n"))
 }
 
 /// Collapse runs of blank lines and trailing spaces.
@@ -82,5 +93,35 @@ mod tests {
         let t = html_to_text("<p>Hello <b>there</b></p><p>Bye</p>");
         assert!(t.contains("Hello") && t.contains("Bye"));
         assert!(!t.contains('<'));
+    }
+
+    /// Shaped like Superhuman's "emails skipped your inbox" digest: <style>, nested layout
+    /// tables, a header row, <wbr> breaks and tracking links. Used to come out as ───── lines.
+    #[test]
+    fn table_newsletter() {
+        let html = r##"<!DOCTYPE html><html><head><title>41 emails skipped your inbox</title>
+<style>body{margin:0}.dgs{padding:9px 8px;font-size:12px}</style></head><body>
+<table role="presentation" width="100%" style="border:1px solid #ececec"><tbody><tr><td>
+<table role="presentation"><tbody><tr><td bgcolor="#714cb6" height="3"> </td></tr>
+<tr><td>Superhuman Mail <span>·</span> Auto Archive</td></tr>
+<tr><td style="font-size:22px;font-weight:bold">41 emails skipped your inbox</td></tr>
+<tr><td>Auto Archive moves routine mail out of your inbox so it stays focused.</td></tr>
+<tr><td><a href="https://links.superhuman.com/aa/v1/eyJ2IjoxLCJ1IjoxNTA1?s=ToqdUaeAzQjm">See all 41 in Auto Archive</a></td></tr>
+</tbody></table></td></tr>
+<tr><td><table class="dggrid" width="100%"><thead><tr><th>Sender</th><th>Subject</th><th>Category</th><td></td></tr></thead>
+<tbody><tr><td><div>Academia Mentions</div><div>premium<wbr/><span>@</span>academia-mail<wbr/>.com</div></td>
+<td><a href="https://links.superhuman.com/aa/v1/eyJ2Ijox?s=3bIEH"><span>Andrea Omicini mentioned A. McIlraith</span></a></td>
+<td>Social likes &amp; vanity</td><td></td></tr></tbody>
+<tbody><tr bgcolor="#fbfaf8"><td><div>Canada Post</div><div>donotreply<wbr/><span>@</span>canadapost<wbr/>.ca</div></td>
+<td><a href="https://links.superhuman.com/aa/v1/xyz"><span> You have mail on the way </span></a></td>
+<td>Order tracking updates</td><td></td></tr></tbody></table></td></tr>
+</tbody></table></body></html>"##;
+        let t = html_to_text(html);
+        for want in ["41 emails skipped your inbox", "See all 41 in Auto Archive", "Academia Mentions",
+                     "premium@academia-mail.com", "Andrea Omicini mentioned A. McIlraith", "Social likes & vanity", "You have mail on the way"] {
+            assert!(t.contains(want), "missing {want:?} in:\n{t}");
+        }
+        assert!(!t.contains('─') && !t.contains('│'), "table borders left in:\n{t}");
+        assert!(!t.contains("padding") && !t.contains("links.superhuman.com"), "CSS or tracking links left in:\n{t}");
     }
 }

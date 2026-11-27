@@ -1004,8 +1004,11 @@ fn load_inbox(ctx: &Arc<Ctx>, app: &MainWindow) {
             match r {
                 Ok(t) => {
                     app.set_inbox_error(SharedString::new());
+                    let top: Vec<(String, String)> = t.iter().take(8).map(|x| (x.account.clone(), x.id.clone())).collect();
                     c2.st().threads = t;
                     render_inbox(&c2, &app);
+                    let c3 = c2.clone();
+                    c2.spawn(async move { c3.hub.prefetch_threads(top).await });
                 }
                 Err(e) => app.set_inbox_error(ss(format!("{e:#}"))),
             }
@@ -1046,6 +1049,20 @@ fn render_inbox(ctx: &Arc<Ctx>, app: &MainWindow) {
 fn open_thread(ctx: &Arc<Ctx>, app: &MainWindow, account: String, id: String) {
     if ctx.st().threads.is_empty() {
         load_inbox(ctx, app);
+    }
+    let known = ctx.st().threads.iter().find(|t| t.id == id && t.account == account).cloned();
+    if let Some(t) = &known {
+        let (label, color) = acct(&ctx.st().accounts, &account);
+        app.set_thread_subject(ss(&t.subject));
+        app.set_thread_account(ss(&account));
+        app.set_thread_account_label(ss(label));
+        app.set_thread_color(color);
+        app.set_thread_starred(t.starred);
+        app.set_thread_important(t.important);
+    }
+    if app.get_thread_id().as_str() != id.as_str() {
+        app.set_messages(model(Vec::new()));
+        app.set_thread_open(false);
     }
     app.set_thread_loading(true);
     let w = app.as_weak();
