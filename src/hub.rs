@@ -51,8 +51,14 @@ pub struct Hub {
     pub cfg: Config,
     pub mcp: Option<Arc<Mcp>>,
     cache: Mutex<HashMap<String, (Instant, Value)>>,
+    /// One lock per cache key, so identical calls made at the same moment
+    /// (overview and inbox both load threads on start) share a single request.
+    inflight: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     demo_cal: Mutex<DemoCal>,
 }
+
+/// How long read-only results stay fresh.
+const CACHE_SECS: u64 = 90;
 
 /// Calendar edits made in demo mode (kept in memory).
 #[derive(Default)]
@@ -85,7 +91,7 @@ pub struct EventInput {
 
 impl Hub {
     pub fn new(cfg: Config, mcp: Option<Arc<Mcp>>) -> Self {
-        Self { cfg, mcp, cache: Mutex::new(HashMap::new()), demo_cal: Mutex::new(DemoCal::default()) }
+        Self { cfg, mcp, cache: Mutex::new(HashMap::new()), inflight: Mutex::new(HashMap::new()), demo_cal: Mutex::new(DemoCal::default()) }
     }
 
     pub fn demo(&self) -> bool {
@@ -100,18 +106,28 @@ impl Hub {
         self.cache.lock().await.clear();
     }
 
-    /// Cached MCP call (90 s) for read-only tools.
+    fn fresh(cache: &HashMap<String, (Instant, Value)>, key: &str) -> Option<Value> {
+        cache.get(key).filter(|(t, _)| t.elapsed().as_secs() < CACHE_SECS).map(|(_, v)| v.clone())
+    }
+
+    /// Cached MCP call (90 s) for read-only tools. Concurrent callers of the same
+    /// key wait for the first request instead of each sending their own.
     async fn cached(&self, account: &str, tool: &str, args: Value) -> Result<Value> {
         let key = format!("{account}|{tool}|{args}");
-        if let Some((t, v)) = self.cache.lock().await.get(&key) {
-            if t.elapsed().as_secs() < 90 {
-                return Ok(v.clone());
-            }
+        if let Some(v) = Self::fresh(&*self.cache.lock().await, &key) {
+            return Ok(v);
+        }
+        let gate = self.inflight.lock().await.entry(key.clone()).or_default().clone();
+        let _held = gate.lock().await;
+        if let Some(v) = Self::fresh(&*self.cache.lock().await, &key) {
+            return Ok(v);
         }
         // "_" means "not tied to one account" (e.g. list_accounts): send no acting_email,
         // because Superhuman rejects unknown accounts.
         let mcp = self.mcp()?;
-        let v = if account == "_" { mcp.call(tool, args).await? } else { mcp.call_as(account, tool, args).await? };
+        let r = if account == "_" { mcp.call(tool, args).await } else { mcp.call_as(account, tool, args).await };
+        self.inflight.lock().await.remove(&key);
+        let v = r?;
         self.cache.lock().await.insert(key, (Instant::now(), v.clone()));
         Ok(v)
     }
