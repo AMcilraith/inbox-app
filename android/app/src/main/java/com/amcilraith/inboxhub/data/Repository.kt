@@ -12,7 +12,7 @@ import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
 /** Everything the app and the background worker need, shared as one instance. */
-class Repository private constructor(context: Context) {
+class Repository private constructor(context: Context) : MailSource {
     companion object {
         @Volatile private var instance: Repository? = null
         fun get(context: Context): Repository =
@@ -26,12 +26,16 @@ class Repository private constructor(context: Context) {
     val auth = Auth(context, http)
     private val mcp = Mcp(http, auth)
 
-    suspend fun accounts(): List<Account> {
+    override suspend fun accounts(): List<Account> {
         val v = mcp.call("list_accounts")
         return v["accounts"].arr().mapNotNull { a ->
             a["accountEmail"].str()?.let { it to (a["isPrimary"].bool() ?: false) }
         }.sortedBy { !it.second }.mapIndexed { i, (email, primary) ->
             Account(email, primary, ACCOUNT_COLORS[i % ACCOUNT_COLORS.size])
+        }.let { list ->
+            // Two accounts at the same company would share a label; use the mailbox name then.
+            val dup = list.groupingBy { it.label }.eachCount().filterValues { it > 1 }.keys
+            list.map { if (it.label in dup) it.copy(label = it.email.substringBefore('@')) else it }
         }
     }
 
@@ -46,16 +50,16 @@ class Repository private constructor(context: Context) {
     }
 
     /** One merged, newest-first inbox across [accounts]. Failed accounts are reported, not fatal. */
-    suspend fun inbox(accounts: List<String>, split: String?): Pair<List<ThreadSummary>, Map<String, String>> = coroutineScope {
+    override suspend fun inbox(accounts: List<String>, split: String?): Pair<List<ThreadSummary>, Map<String, String>> = coroutineScope {
         val results = accounts.map { a -> async { a to runCatching { threads(a, split) } } }.awaitAll()
         val errors = results.mapNotNull { (a, r) -> r.exceptionOrNull()?.let { a to (it.message ?: "error") } }.toMap()
         results.flatMap { it.second.getOrDefault(emptyList()) }.sortedByDescending { it.date } to errors
     }
 
-    suspend fun thread(account: String, id: String): ThreadDetail =
+    override suspend fun thread(account: String, id: String): ThreadDetail =
         parseThreadDetail(account, mcp.call("get_thread", obj("thread_id" to id, "include_comments" to false, "message_limit" to 30), account))
 
-    suspend fun update(t: ThreadSummary, done: Boolean? = null, read: Boolean? = null, starred: Boolean? = null) =
+    override suspend fun update(t: ThreadSummary, done: Boolean?, read: Boolean?, starred: Boolean?) =
         updateById(t.account, t.id, t.lastMessageId, done, read, starred)
 
     suspend fun updateById(account: String, threadId: String, lastMessageId: String, done: Boolean? = null, read: Boolean? = null, starred: Boolean? = null) {
@@ -67,19 +71,19 @@ class Repository private constructor(context: Context) {
     }
 
     /** Reply from the account that owns the thread. Sending goes through Superhuman (1-minute undo there). */
-    suspend fun reply(account: String, threadId: String, text: String, send: Boolean, draftId: String? = null): String {
+    override suspend fun reply(account: String, threadId: String, text: String, send: Boolean, draftId: String?): String {
         val html = text.split("\n\n").joinToString("") { p ->
             "<p>" + p.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>") + "</p>"
         }
         // Update the draft Superhuman's writer made (if any) instead of creating a second one.
         val draft = mcp.call("create_or_update_draft", obj("type" to "reply", "thread_id" to threadId, "body" to html, "draft_id" to draftId), account)
-        val draftId = draft["draft"]["draft_id"].str() ?: draft["draft_id"].str() ?: throw Exception("Superhuman returned no draft")
+        val savedId = draft["draft"]["draft_id"].str() ?: draft["draft_id"].str() ?: throw Exception("Superhuman returned no draft")
         if (!send) return "Saved to your Superhuman drafts"
-        mcp.call("send_draft", obj("draft_id" to draftId), account)
-        return "Sent — you can undo it in Superhuman for about a minute"
+        mcp.call("send_draft", obj("draft_id" to savedId), account)
+        return "Sent. You can undo it in Superhuman for about a minute"
     }
 
-    suspend fun events(accounts: List<String>, zone: ZoneId, days: Long = 7): List<CalEvent> = coroutineScope {
+    override suspend fun events(accounts: List<String>, zone: ZoneId, days: Long): List<CalEvent> = coroutineScope {
         val start = LocalDate.now(zone).atStartOfDay(zone)
         val end = start.plusDays(days)
         accounts.map { a ->
@@ -95,12 +99,12 @@ class Repository private constructor(context: Context) {
         }.awaitAll().flatten().sortedBy { it.start }.also { markClashes(it) }
     }
 
-    suspend fun rsvp(account: String, eventId: String, response: String) {
+    override suspend fun rsvp(account: String, eventId: String, response: String) {
         mcp.call("set_rsvp_event", obj("event_id" to eventId, "response" to response), account)
     }
 
     /** Link another Superhuman account; returns the URL to approve it in a browser. */
-    suspend fun linkAccountUrl(): String? {
+    override suspend fun linkAccountUrl(): String? {
         val v = mcp.call("add_account")
         return v["continueUrl"].str() ?: v["url"].str()
     }
@@ -110,7 +114,7 @@ class Repository private constructor(context: Context) {
     // ------------------------------------------------------------ Superhuman AI
 
     /** Ask Superhuman's assistant across every linked account; each answer labelled by account. */
-    suspend fun askSuperhuman(question: String, accounts: List<Account>): String = coroutineScope {
+    override suspend fun askSuperhuman(question: String, accounts: List<Account>): String = coroutineScope {
         val answers = accounts.map { a ->
             async { a.email to runCatching { mcp.call("query_email_and_calendar", obj("question" to question), a.email) } }
         }.awaitAll()
@@ -125,7 +129,7 @@ class Repository private constructor(context: Context) {
     }
 
     /** Draft a reply with Superhuman's writer; returns the text and the draft it saved. */
-    suspend fun draftWithSuperhuman(account: String, threadId: String, instructions: String): Pair<String, String?> {
+    override suspend fun draftWithSuperhuman(account: String, threadId: String, instructions: String): Pair<String, String?> {
         val d = mcp.call(
             "create_or_update_draft",
             obj("type" to "reply", "thread_id" to threadId, "instructions" to instructions.ifBlank { "Write the most sensible reply." }),
@@ -154,9 +158,9 @@ class Repository private constructor(context: Context) {
         return id to history
     }
 
-    suspend fun loadAskHistory(primary: String): AskHistory = askSnippet(primary).second.merge(AskHistory())
+    override suspend fun loadAskHistory(primary: String): AskHistory = askSnippet(primary).second.merge(AskHistory())
 
-    suspend fun syncAskHistory(primary: String, local: AskHistory): AskHistory {
+    override suspend fun syncAskHistory(primary: String, local: AskHistory): AskHistory {
         val (id, remote) = askSnippet(primary)
         val merged = remote.merge(local)
         mcp.call("create_or_update_snippet", obj("id" to id, "name" to AskHistory.SNIPPET, "body" to merged.encode()), primary)
@@ -165,11 +169,11 @@ class Repository private constructor(context: Context) {
 
     // ------------------------------------------------------------ thread actions
 
-    suspend fun remind(t: ThreadSummary, at: Instant) {
+    override suspend fun remind(t: ThreadSummary, at: Instant) {
         mcp.call("create_or_update_reminder", obj("thread_id" to t.id, "remind_at" to at.toString()), t.account)
     }
 
-    suspend fun setImportant(t: ThreadSummary, important: Boolean) {
+    override suspend fun setImportant(t: ThreadSummary, important: Boolean) {
         mcp.call("update_thread", obj("thread_id" to t.id, "last_message_id" to t.lastMessageId, "mark_important" to important), t.account)
     }
 }

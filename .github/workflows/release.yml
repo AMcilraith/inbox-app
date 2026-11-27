@@ -106,6 +106,20 @@ jobs:
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "name=${v#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Tests and screenshots
+        working-directory: android
+        run: ./gradlew testDebugUnitTest --console=plain
+
+      - name: Upload phone screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-screenshots
+          path: |
+            android/app/build/screenshots/
+            android/app/build/reports/tests/
+          if-no-files-found: ignore
+
       - name: Build APK
         working-directory: android
         env:

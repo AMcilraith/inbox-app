@@ -31,6 +31,12 @@ class MainActivity : ComponentActivity() {
         handle(intent)
     }
 
+    override fun onStop() {
+        // A "Done" waiting behind its Undo snackbar is sent when you leave the app.
+        vm.flushPending()
+        super.onStop()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handle(intent)
