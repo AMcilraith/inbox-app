@@ -59,12 +59,19 @@ older version that used `%APPDATA%\inbox-hub\` is copied over on first start.
 - **Install:** open the APK on your phone (send it to yourself, or download it from the release
   page in the phone's browser) and allow *Install unknown apps* for that app when Android asks.
   New versions install over old ones: every APK is signed with the same key.
-- **Sign in** with Superhuman once. Every linked account shows up.
-- **Inbox:** Important / Other / All, filter by account, pull to refresh. Swipe right for
-  **Done** (archive), swipe left to mark read/unread. Open a thread to read it, star it, mark it
-  done or reply from the right account (asks before sending).
-- **Calendar:** the next 7 days across all calendars, with clashes and RSVPs flagged. Tap an
-  event to answer Yes/Maybe/No or join the call.
+- **Sign in** with Superhuman once. Every linked account shows up. **Try with sample data**
+  shows the app with four example accounts first.
+- **Opens instantly:** the last inbox is kept on the phone and refreshed in the background, and
+  the top conversations are fetched ahead so they open at once.
+- **Inbox:** Important / Other / All, filter by account, search what's loaded, pull to refresh.
+  Swipe right for **Done** (archive), swipe left to mark read/unread. Done, reminders and moves
+  show **Undo** for a few seconds. Open a thread to read it (links are tappable, older messages
+  fold), star it, set a reminder, or reply from the right account with or without Superhuman AI
+  (asks before sending).
+- **Ask:** questions across every account, answered by Superhuman AI, in the same conversation
+  as the desktop app.
+- **Calendar:** the next 7 days across all calendars, with a "now" line, clashes and RSVPs
+  flagged and Join buttons. Tap an event to answer Yes/Maybe/No or join the call.
 - **Notifications:** new unread mail in each account's Important inbox, grouped per account,
   with **Done** and **Mark read** buttons. Android lets apps check at most every 15 minutes in
   the background; *Settings → Check for new mail now* checks immediately.
@@ -74,7 +81,10 @@ Build it yourself (JDK 17+, Android SDK 35):
 ```bash
 cd android
 ./gradlew assembleRelease     # app/build/outputs/apk/release/app-release.apk
+./gradlew testDebugUnitTest   # tests, and screenshots of every screen in app/build/screenshots/
 ```
+
+Screenshots: [phone](docs/screenshots/android/) · [desktop](docs/screenshots/desktop/).
 
 ## Daily digest
 
